@@ -87,6 +87,10 @@ class Plugin(pyworkflow.em.Plugin):
         return env
 
     @classmethod
+    def getHDF5model(self, modelName):
+        return getXmippPath('models', modelName)
+
+    @classmethod
     def defineBinaries(cls, env):
 
         ## XMIPP SOFTWARE ##
