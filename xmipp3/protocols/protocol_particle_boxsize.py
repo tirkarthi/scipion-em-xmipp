@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # **************************************************************************
 # *
 # * Authors:     Jose Luis Vilas (jlvilas@cnb.csic.es)
@@ -85,7 +84,7 @@ class XmippProtParticleBoxsize(ProtMicrographs):
         with open(particleBoxSizeFn, 'r') as fp:
             self.particleBoxsize = int(fp.read().rstrip('\n'))
 
-        print(self.particleBoxsize)
+        print("\n > Estimated box size: %d \n" % self.particleBoxsize)
 
     def createOutputStep(self):
         """ The output is just an Integer. Other protocols can use it in those
