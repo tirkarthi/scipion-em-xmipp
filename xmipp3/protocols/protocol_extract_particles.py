@@ -38,7 +38,6 @@ from pyworkflow.protocol.constants import (STEPS_PARALLEL, LEVEL_ADVANCED,
 import pyworkflow.protocol.params as params
 from pyworkflow.em.protocol import ProtExtractParticles
 from pyworkflow.em.data import Particle
-from pyworkflow.object import Float, ObjectWrap
 from pyworkflow.em.constants import RELATION_CTF
 
 from xmipp3.base import XmippProtocol
@@ -46,7 +45,6 @@ from xmipp3.convert import (micrographToCTFParam, writeMicCoordinates,
                             xmippToLocation, setXmippAttributes)
 from xmipp3.constants import SAME_AS_PICKING, OTHER
 
-import xmippLib
 
 class XmippProtExtractParticles(ProtExtractParticles, XmippProtocol):
     """Protocol to extract particles from a set of coordinates"""
@@ -478,7 +476,6 @@ class XmippProtExtractParticles(ProtExtractParticles, XmippProtocol):
                 coordDict[pos] = coord
 
             added = set() # Keep track of added coords to avoid duplicates
-            iii = 1
             for row in md.iterRows(self._getMicXmd(mic)):
                 pos = (row.getValue(md.MDL_XCOOR), row.getValue(md.MDL_YCOOR))
                 coord = coordDict.get(pos, None)
@@ -493,10 +490,7 @@ class XmippProtExtractParticles(ProtExtractParticles, XmippProtocol):
                     # adding the variance and Gini coeff. value of the mic zone
                     setXmippAttributes(p, row, md.MDL_SCORE_BY_VAR)
                     setXmippAttributes(p, row, md.MDL_SCORE_BY_GINI)
-                    setattr(p, '_xmipp_%s'
-                            % xmippLib.label2Str(md.MDL_COORD_CONSENSUS_SCORE),
-                            ObjectWrap(iii))
-                    iii += 3
+                    setXmippAttributes(p, row, md.MDL_ZSCORE_DEEPLEARNING1)
 
                     # disabled particles (in metadata) should not add to the
                     # final set
