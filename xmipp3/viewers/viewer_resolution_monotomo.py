@@ -47,8 +47,8 @@ from pyworkflow.em import ImageHandler
 
 from .plotter import XmippPlotter
 from xmipp3.protocols.protocol_resolution_monotomo import \
-        XmippProtMonoTomo, OUTPUT_RESOLUTION_FILE, FN_METADATA_HISTOGRAM, \
-        OUTPUT_RESOLUTION_FILE_CHIMERA, CHIMERA_RESOLUTION_VOL, FN_FILTERED_MAP
+        XmippProtMonoTomo, OUTPUT_RESOLUTION_FILE, FN_METADATA_HISTOGRAM#, \
+#         OUTPUT_RESOLUTION_FILE_CHIMERA, CHIMERA_RESOLUTION_VOL, FN_FILTERED_MAP
 
 
 binaryCondition = ('(colorMap == %d) ' % (COLOR_OTHER))
@@ -108,8 +108,8 @@ class XmippMonoTomoViewer(LocalResolutionViewer):
         group.addParam('doShowVolumeColorSlices', LabelParam,
               label="Show colored resolution slices")
         
-        group.addParam('doShowVolumeColorFiltered', LabelParam,
-              label="Show colored filtered resolution slices")
+#         group.addParam('doShowVolumeColorFiltered', LabelParam,
+#               label="Show colored filtered resolution slices")
         
         group.addParam('doShowOneColorslice', LabelParam, 
                        expertLevel=LEVEL_ADVANCED, 
@@ -126,7 +126,7 @@ class XmippMonoTomoViewer(LocalResolutionViewer):
         return {'doShowOriginalVolumeSlices': self._showOriginalVolumeSlices,
                 'doShowVolumeSlices': self._showVolumeSlices,
                 'doShowVolumeColorSlices': self._showVolumeColorSlicesResolution,
-                'doShowVolumeColorFiltered': self._showVolumeColorSlicesResolutionFiltered,
+#                 'doShowVolumeColorFiltered': self._showVolumeColorSlicesResolutionFiltered,
                 'doShowOneColorslice': self._showOneColorslice,
                 'doShowResHistogram': self._plotHistogram,
                 'doShowChimera': self._showChimera,
@@ -152,8 +152,8 @@ class XmippMonoTomoViewer(LocalResolutionViewer):
     def _showVolumeColorSlicesResolution(self, param=None):
         self._showVolumeColorSlices(OUTPUT_RESOLUTION_FILE)
         
-    def _showVolumeColorSlicesResolutionFiltered(self, param=None):
-        self._showVolumeColorSlices(FN_FILTERED_MAP)
+#     def _showVolumeColorSlicesResolutionFiltered(self, param=None):
+#         self._showVolumeColorSlices(FN_FILTERED_MAP)
     
     def _showVolumeColorSlices(self, mapFile):
         imageFile = self.protocol._getFileName(mapFile)
@@ -247,7 +247,7 @@ class XmippMonoTomoViewer(LocalResolutionViewer):
         fnRoot = "extra/"
         scriptFile = self.protocol._getPath('Chimera_resolution.cmd')
         fhCmd = open(scriptFile, 'w')
-        imageFile = self.protocol._getFileName(OUTPUT_RESOLUTION_FILE_CHIMERA)
+        imageFile = self.protocol._getFileName(OUTPUT_RESOLUTION_FILE)
         img = ImageHandler().read(imageFile)
         imgData = img.getData()
         min_Res = round(np.amin(imgData)*100)/100
@@ -264,7 +264,7 @@ class XmippMonoTomoViewer(LocalResolutionViewer):
         fninput = abspath(fnbase + ext[0:4])
         fhCmd.write("open %s\n" % fninput)
 
-        fhCmd.write("open %s\n" % (fnRoot + CHIMERA_RESOLUTION_VOL))
+        fhCmd.write("open %s\n" % (abspath(self.protocol._getFileName(OUTPUT_RESOLUTION_FILE))))
         smprt = self.protocol.inputVolume.get().getSamplingRate()
         fhCmd.write("volume #0 voxelSize %s\n" % (str(smprt)))
         fhCmd.write("volume #1 voxelSize %s\n" % (str(smprt)))

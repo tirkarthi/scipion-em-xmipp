@@ -39,12 +39,12 @@ from pyworkflow.em.data import Volume
 import pyworkflow.em.metadata as md
 
 
-CHIMERA_RESOLUTION_VOL = 'MG_Chimera_resolution.vol'
+# CHIMERA_RESOLUTION_VOL = 'MG_Chimera_resolution.vol'
 MONORES_METHOD_URL = 'http://github.com/I2PC/scipion/wiki/XmippProtMonoRes'
 OUTPUT_RESOLUTION_FILE = 'resolutionMap'
-FN_FILTERED_MAP = 'filteredMap'
-OUTPUT_RESOLUTION_FILE_CHIMERA = 'outputChimera'
-OUTPUT_MASK_FILE = 'outputmask'
+# FN_FILTERED_MAP = 'filteredMap'
+# OUTPUT_RESOLUTION_FILE_CHIMERA = 'outputChimera'
+# OUTPUT_MASK_FILE = 'outputmask'
 FN_MEAN_VOL = 'meanvol'
 METADATA_MASK_FILE = 'metadataresolutions'
 FN_METADATA_HISTOGRAM = 'mdhist'
@@ -118,9 +118,9 @@ class XmippProtMonoTomo(ProtAnalysis3D):
         """ Centralize how files are called """
         myDict = {
                  FN_MEAN_VOL: self._getExtraPath('mean_volume.vol'),
-                 OUTPUT_MASK_FILE: self._getExtraPath("output_Mask.vol"),
-                 OUTPUT_RESOLUTION_FILE_CHIMERA: self._getExtraPath(CHIMERA_RESOLUTION_VOL),
-                 FN_FILTERED_MAP: self._getExtraPath('filteredMap.vol'),
+#                  OUTPUT_MASK_FILE: self._getExtraPath("output_Mask.vol"),
+#                 OUTPUT_RESOLUTION_FILE_CHIMERA: self._getExtraPath(CHIMERA_RESOLUTION_VOL),
+#                  FN_FILTERED_MAP: self._getExtraPath('filteredMap.vol'),
                  OUTPUT_RESOLUTION_FILE: self._getExtraPath('mgresolution.vol'),
                  METADATA_MASK_FILE: self._getExtraPath('mask_data.xmd'),
                  FN_METADATA_HISTOGRAM: self._getExtraPath('hist.xmd'),
@@ -164,7 +164,7 @@ class XmippProtMonoTomo(ProtAnalysis3D):
             if self.Mask.hasValue():
                 params = ' -i %s' % self.maskFn
                 params += ' -o %s' % self._getFileName(BINARY_MASK)
-                params += ' --select below %f' % 0.5# Mask threshold = 0.5 self.maskthreshold.get()
+                params += ' --select below %f' % 0.5 # Mask threshold = 0.5 self.maskthreshold.get()
                 params += ' --substitute binarize'
                  
                 self.runJob('xmipp_transform_threshold', params)
@@ -224,13 +224,13 @@ class XmippProtMonoTomo(ProtAnalysis3D):
         params += ' --maxRes %f' % max_
             
         params += ' --step %f' % freq_step
-        params += ' --mask_out %s' % self._getFileName(OUTPUT_MASK_FILE)
+#         params += ' --mask_out %s' % self._getFileName(OUTPUT_MASK_FILE)
         params += ' -o %s' % self._getFileName(OUTPUT_RESOLUTION_FILE)
-        params += ' --filteredMap %s' % self._getFileName(FN_FILTERED_MAP)
-        params += ' --chimera_volume %s' % self._getFileName(
-                                                    OUTPUT_RESOLUTION_FILE_CHIMERA)
+#         params += ' --filteredMap %s' % self._getFileName(FN_FILTERED_MAP)
+#         params += ' --chimera_volume %s' % self._getFileName(
+#                                                     OUTPUT_RESOLUTION_FILE_CHIMERA)
         params += ' --significance %f' % self.significance.get()
-        params += ' --md_outputdata %s' % self._getFileName(METADATA_MASK_FILE)  
+#         params += ' --md_outputdata %s' % self._getFileName(METADATA_MASK_FILE)  
 
         self.runJob('xmipp_resolution_monotomo', params)
 
@@ -238,14 +238,19 @@ class XmippProtMonoTomo(ProtAnalysis3D):
 
     def createHistrogram(self):
 
+        if self.stepSize.hasValue():
+            freq_step = self.stepSize.get()
+        else:
+            freq_step = 0.25
+            
         M = float(self.max_res_init)
         m = float(self.min_res_init)
         range_res = round((M - m))
 
         params = ' -i %s' % self._getFileName(OUTPUT_RESOLUTION_FILE)
-        params += ' --mask binary_file %s' % self._getFileName(OUTPUT_MASK_FILE)
+#         params += ' --mask binary_file %s' % self._getFileName(OUTPUT_MASK_FILE)
         params += ' --steps %f' % (range_res)
-        params += ' --range %f %f' % (self.min_res_init, self.max_res_init)
+        params += ' --range %f %f' % (self.min_res_init, ( float(self.max_res_init) - float(freq_step) ) )
         params += ' -o %s' % self._getFileName(FN_METADATA_HISTOGRAM)
 
         self.runJob('xmipp_image_histogram', params)
@@ -274,15 +279,15 @@ class XmippProtMonoTomo(ProtAnalysis3D):
         self._defineOutputs(resolution_Volume=volume)
         self._defineSourceRelation(self.inputVolume, volume)
         
-        volume=Volume()
-        volume.setFileName(self._getFileName(FN_FILTERED_MAP))
-        volume.setSamplingRate(self.inputVolume.get().getSamplingRate())
-        self._defineOutputs(outputVolume_Filtered=volume)
-        self._defineSourceRelation(self.inputVolume, volume)
+#         volume=Volume()
+#         volume.setFileName(self._getFileName(FN_FILTERED_MAP))
+#         volume.setSamplingRate(self.inputVolume.get().getSamplingRate())
+#         self._defineOutputs(outputVolume_Filtered=volume)
+#         self._defineSourceRelation(self.inputVolume, volume)
             
             
         #Setting the min max for the summary
-        imageFile = self._getFileName(OUTPUT_RESOLUTION_FILE_CHIMERA)
+        imageFile = self._getFileName(OUTPUT_RESOLUTION_FILE)
         min_, max_ = self.getMinMax(imageFile)
         self.min_res_init.set(round(min_*100)/100)
         self.max_res_init.set(round(max_*100)/100)
