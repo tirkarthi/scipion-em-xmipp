@@ -28,9 +28,9 @@
 import requests
 import webbrowser
 
-# FIXME: Avoid this crazy import * statements
 from pyworkflow.em import *
-from pyworkflow.em.convert import ImageHandler, Ccp4Header
+from pyworkflow.em.convert import ImageHandler
+from pyworkflow.em.convert import Ccp4Header
 from pyworkflow.protocol.constants import LEVEL_ADVANCED
 
 
@@ -48,8 +48,8 @@ class XmippProt3DBionotes(ProtAnalysis3D):
         form.addSection(label='Input')
         form.addParam('inputPDB', PointerParam, pointerClass='PdbFile',
                       label="Input PDB")
-#         form.addParam('inputVol', PointerParam, pointerClass='Volume',
-#                       label="Input volume", important=True)
+        form.addParam('inputVol', PointerParam, pointerClass='Volume', allowsNull=True,
+                       label="Input volume", important=True)
     
     #--------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
@@ -57,21 +57,24 @@ class XmippProt3DBionotes(ProtAnalysis3D):
         
     #--------------------------- STEPS functions -------------------------------
     def bionotesWrapper(self):
-#         img = ImageHandler()
-#         fnVol = self._getExtraPath('volume.mrc')
-#         vol = self.inputVol.get()
-#         img.convert(vol,fnVol)
-#
-#         ccp4header = Ccp4Header(fnVol, readHeader= True)
-#         ccp4header.setOffset(vol.getOrigin(force=True).getShifts())
-#         ccp4header.setSampling(vol.getSamplingRate())
-#         ccp4header.writeHeader()
+        img = ImageHandler()
+        fnVol = self._getExtraPath('volume.mrc')
+        vol = self.inputVol.get()
+        img.convert(vol,fnVol)
+
+        ccp4header = Ccp4Header(fnVol, readHeader= True)
+        ccp4header.setOrigin(vol.getOrigin(force=True).getShifts())
+        ccp4header.setSampling(vol.getSamplingRate())
+        ccp4header.writeHeader()
         data = {'title':'PDB structure'}
         files = {'structure_file': open(self.inputPDB.get().getFileName(), 'rb')}
+                # 'volume_file': open(fnVol, 'rb')} #*** encontrar como se llama el elemento inputVolume para esta clase
 
         response = requests.post('http://3dbionotes.cnb.csic.es/programmatic/upload',data=data, files=files)
         json_data = json.loads(response.text)
-        webbrowser.open_new(json_data["url"])
+        url = "http://3dbionotes.cnb.csic.es/programmatic/get/"+json_data['id']
+        print(json_data)
+        webbrowser.open_new(url)
 
     #--------------------------- INFO functions --------------------------------
             
