@@ -1,16 +1,44 @@
+# **************************************************************************
+# *
+# * Authors:     Javier Mota
+# *
+# * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
+# *
+# * This program is free software; you can redistribute it and/or modify
+# * it under the terms of the GNU General Public License as published by
+# * the Free Software Foundation; either version 2 of the License, or
+# * (at your option) any later version.
+# *
+# * This program is distributed in the hope that it will be useful,
+# * but WITHOUT ANY WARRANTY; without even the implied warranty of
+# * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# * GNU General Public License for more details.
+# *
+# * You should have received a copy of the GNU General Public License
+# * along with this program; if not, write to the Free Software
+# * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+# * 02111-1307  USA
+# *
+# *  All comments concerning this program package may be sent to the
+# *  e-mail address 'scipion@cnb.csic.es'
+# *
+# **************************************************************************
 
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+from pyworkflow import VERSION_2_0
 from .protocol_generate_reprojections import XmippProtGenerateReprojections
 import pyworkflow.protocol.params as params
 import pyworkflow.protocol.constants as cons
-import numpy as np
+import pyworkflow.em.metadata as md
+from pyworkflow.utils.path import cleanPath
 
 import xmippLib
 from xmipp3.convert import writeSetOfParticles, setXmippAttributes, xmippToLocation
-import matplotlib.pyplot as plt
-from xmipp3.utils import getMdSize
-import pyworkflow.em.metadata as md
-from pyworkflow.utils.path import cleanPath
-import os
+from xmipp3.utils import getMdSize, validateDLtoolkit
+import xmipp3
 
 
 def updateEnviron(gpuNum):
@@ -26,13 +54,11 @@ ITER_PREDICT = 1
 class XmippProtDeepDenoising(XmippProtGenerateReprojections):
 
     _label ="deep denoising"
+    _lastUpdateVersion = VERSION_2_0
 
     def _defineParams(self, form):
 
         form.addSection('Input')
-        form.addParam('deepMsg', params.LabelParam, default=True,
-                      label='WARNING! You need to have installed '
-                            'Keras programs')
         form.addHidden(params.GPU_LIST, params.StringParam, default='',
                        expertLevel=cons.LEVEL_ADVANCED,
                        label="Choose GPU IDs",
@@ -60,10 +86,11 @@ class XmippProtDeepDenoising(XmippProtGenerateReprojections):
                       'reprojections views')
 
         form.addParam('modelPretrain', params.BooleanParam, default = False,
-                      condition='model==%d'%ITER_PREDICT,label='Choose your '
-                      'own model', help='Setting "yes" '
-                      'you can choose your own model trained. If you choose'
-                      '"no" a general model pretrained will be assign')
+                      condition='model==%d'%ITER_PREDICT,
+                      label='Use a custom model',
+                      help='Setting "yes" you can choose your own model trained. '
+                           'If you choose "no" a general model pre-trained will '
+                           'be assign')
 
         form.addParam('ownModel', params.PointerParam,
                       pointerClass=self.getClassName(),
@@ -154,7 +181,8 @@ class XmippProtDeepDenoising(XmippProtGenerateReprojections):
                 model = self.ownModel.get()._getPath('ModelTrained.h5')
                 model = load_model(model)
             else:
-                model = load_model(self._getPath('PretrainModel.h5'))
+                myModelfile = xmipp3.Plugin.getModel('deepDenoising', 'PretrainModel.h5')
+                model = load_model(myModelfile)
         for num in range(1,dimMetadata,self.groupParticles):
             self.noisyParticles = self.gan.extractInfoMetadata(metadataPart,
                                     xmippLib.MDL_IMAGE, img, num,
@@ -235,6 +263,16 @@ class XmippProtDeepDenoising(XmippProtGenerateReprojections):
         summary = []
         summary.append("Particles denoised")
         return summary
+
+    def _validate(self):
+
+        assertModel = self.model.get()==ITER_PREDICT and not self.modelPretrain
+        errors = validateDLtoolkit(assertModel=assertModel,
+                                   model=('deepDenoising', 'PretrainModel.h5'),
+                                   errorMsg="Required with 'Predict' mode when "
+                                            "no custom model is provided.")
+
+        return errors
 
 
 class GAN(XmippProtDeepDenoising):
