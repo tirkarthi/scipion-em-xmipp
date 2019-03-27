@@ -24,13 +24,15 @@
 # *
 # **************************************************************************
 
+import pickle
+
 from pyworkflow import VERSION_2_0
 from pyworkflow.em.protocol.protocol import EMProtocol
 from pyworkflow.protocol.params import MultiPointerParam
 from pyworkflow.em import Class3D
 
 
-class XmippProtConsensusClasses3D(EMProtocol):
+class XmippProtConsensusClasses3D_2(EMProtocol):
     """ Compare several SetOfClasses3D.
         Return the intersection of the input classes.
     """
@@ -50,6 +52,7 @@ class XmippProtConsensusClasses3D(EMProtocol):
         """ Inserting one step for each intersections analisis
         """
         self.intersectsList = []
+
         self._insertFunctionStep('compareFirstStep', 
                                  self.inputMultiClasses[0].get().getObjId(),
                                  self.inputMultiClasses[1].get().getObjId())
@@ -58,6 +61,8 @@ class XmippProtConsensusClasses3D(EMProtocol):
             for i in range(2, len(self.inputMultiClasses)):
                 self._insertFunctionStep('compareOthersStep', i,
                                      self.inputMultiClasses[i].get().getObjId())
+
+        self._insertFunctionStep('computingDistances')
 
         self._insertFunctionStep('createOutputStep')
 
@@ -88,6 +93,10 @@ class XmippProtConsensusClasses3D(EMProtocol):
 
         self.intersectsList = newList
 
+        # saving data just in case of a failure in the next step
+        with open(self._getTmpPath('intersection1.pkl'), 'wb') as fileW1:
+            pickle.dump(newList, fileW1, pickle.HIGHEST_PROTOCOL)
+
     def compareOthersStep(self, set1Id, objId):
         """ We find the intersections for the rest of sets of classes
         """
@@ -96,8 +105,13 @@ class XmippProtConsensusClasses3D(EMProtocol):
         print('Computing intersections between classes form set %s and '
               'the previous ones:' % (set1.getNameId()))
 
-        newList = []
         currDB = self.intersectsList
+        if not currDB:  # rescuing data after a failure/continue
+            prevInter = 'intersection%d.pkl' % (set1Id-1)
+            with open(self._getTmpPath(prevInter), 'rb') as fileR:
+                currDB = pickle.load(fileR)
+
+        newList = []
         for cls1 in set1:
             cls1Id = cls1.getObjId()
             ids1 = cls1.getIdSet()
@@ -110,10 +124,32 @@ class XmippProtConsensusClasses3D(EMProtocol):
 
                 interTuple = self.intersectClasses(set1Id, cls1Id, ids1,
                                                    set2Id, cls2Id, ids2, clSize)
-
                 newList.append(interTuple)
                 
         self.intersectsList = newList
+        intersectFn = 'intersection%d.pkl' % set1Id
+        with open(self._getTmpPath(intersectFn), 'wb') as fileW2:
+            pickle.dump(newList, fileW2, pickle.HIGHEST_PROTOCOL)
+
+    def computingDistances(self):
+
+        inputClasses = []
+        for cls in self.inputMultiClasses:
+            idsInClass = cls.get().getIdSet()
+            inputClasses.append(idsInClass)
+
+        currDB = self.intersectsList
+        if not currDB:  # rescuing data after a failure/continue
+            prevInter = 'intersection%d.pkl' % (len(self.inputMultiClasses)-1)
+            with open(self._getTmpPath(prevInter), 'rb') as fileR:
+                currDB = pickle.load(fileR)
+
+        nodes = [tup[1] for tup in currDB]
+
+        print nodes
+
+
+        raise Exception('PETA')
 
     def createOutputStep(self):
 
@@ -159,6 +195,7 @@ class XmippProtConsensusClasses3D(EMProtocol):
         for item in self.inputMultiClasses:
             self._defineSourceRelation(item, outputClasses)
 
+        raise Exception('Peta')
 
     # --------------------------- INFO functions -------------------------------
     def _summary(self):
@@ -202,6 +239,3 @@ class XmippProtConsensusClasses3D(EMProtocol):
         # print(" -  -  -  -  -  -  -  -  -  -")
 
         return len(inter), inter, setId, clsId, clsSize
-
-    def distance(self):
-        pass
