@@ -24,10 +24,12 @@
 # *
 # **************************************************************************
 
+import pickle
+
 from pyworkflow import VERSION_2_0
+from pyworkflow.em import Class3D
 from pyworkflow.em.protocol.protocol import EMProtocol
 from pyworkflow.protocol.params import MultiPointerParam
-from pyworkflow.em import Class3D
 
 
 class XmippProtConsensusClasses3D(EMProtocol):
@@ -50,6 +52,7 @@ class XmippProtConsensusClasses3D(EMProtocol):
         """ Inserting one step for each intersections analisis
         """
         self.intersectsList = []
+
         self._insertFunctionStep('compareFirstStep', 
                                  self.inputMultiClasses[0].get().getObjId(),
                                  self.inputMultiClasses[1].get().getObjId())
@@ -58,6 +61,8 @@ class XmippProtConsensusClasses3D(EMProtocol):
             for i in range(2, len(self.inputMultiClasses)):
                 self._insertFunctionStep('compareOthersStep', i,
                                      self.inputMultiClasses[i].get().getObjId())
+
+        self._insertFunctionStep('computingDistances')
 
         self._insertFunctionStep('createOutputStep')
 
@@ -81,12 +86,16 @@ class XmippProtConsensusClasses3D(EMProtocol):
                 cls2Id = cls2.getObjId()
                 ids2 = cls2.getIdSet()
 
-                interTuple = self.intersectClasses(set1Id, cls1Id, ids1,
-                                                   set2Id, cls2Id, ids2)
+                interTuple = intersectClasses(set1Id, cls1Id, ids1,
+                                              set2Id, cls2Id, ids2)
 
                 newList.append(interTuple)
 
         self.intersectsList = newList
+
+        # saving data just in case of a failure in the next step
+        with open(self._getTmpPath('intersection1.pkl'), 'wb') as fileW1:
+            pickle.dump(newList, fileW1, pickle.HIGHEST_PROTOCOL)
 
     def compareOthersStep(self, set1Id, objId):
         """ We find the intersections for the rest of sets of classes
@@ -96,8 +105,13 @@ class XmippProtConsensusClasses3D(EMProtocol):
         print('Computing intersections between classes form set %s and '
               'the previous ones:' % (set1.getNameId()))
 
-        newList = []
         currDB = self.intersectsList
+        if not currDB:  # rescuing data after a failure/continue
+            prevInter = 'intersection%d.pkl' % (set1Id-1)
+            with open(self._getTmpPath(prevInter), 'rb') as fileR:
+                currDB = pickle.load(fileR)
+
+        newList = []
         for cls1 in set1:
             cls1Id = cls1.getObjId()
             ids1 = cls1.getIdSet()
@@ -108,31 +122,67 @@ class XmippProtConsensusClasses3D(EMProtocol):
                 cls2Id = currTuple[3]
                 clSize = currTuple[4]
 
-                interTuple = self.intersectClasses(set1Id, cls1Id, ids1,
-                                                   set2Id, cls2Id, ids2, clSize)
-
+                interTuple = intersectClasses(set1Id, cls1Id, ids1,
+                                              set2Id, cls2Id, ids2, clSize)
                 newList.append(interTuple)
                 
         self.intersectsList = newList
+        intersectFn = 'intersection%d.pkl' % set1Id
+        with open(self._getTmpPath(intersectFn), 'wb') as fileW2:
+            pickle.dump(newList, fileW2, pickle.HIGHEST_PROTOCOL)
+
+    def computingDistances(self):
+
+        inputClasses = []
+        inClassesLabels = []
+        for clsSetId, clsSet in enumerate(self.inputMultiClasses):
+            for cls in clsSet.get():
+                clsId = cls.getObjId()
+                inClassesLabels.append("Set%d-Cls%d" % (clsSetId, clsId))
+                idsInClass = cls.getIdSet()
+                inputClasses.append(idsInClass)
+
+        currDB = self.intersectsList
+        if not currDB:  # rescuing data after a failure/continue
+            prevInter = 'intersection%d.pkl' % (len(self.inputMultiClasses)-1)
+            with open(self._getTmpPath(prevInter), 'rb') as fileR:
+                currDB = pickle.load(fileR)
+
+        nodes = [tup[1] for tup in currDB if tup[0] > 0]
+
+        classDistances = getClassDistances(inputClasses, nodes, inClassesLabels)
+
+
+        # Creating the dendogram. FIXME: Take this and put it in the viewer!!
+
+        from scipy.cluster import hierarchy
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        Y = classDistances.values()
+        Z = hierarchy.linkage(np.asarray(Y), 'single')
+        plt.figure()
+        nplabels = np.asarray([x.replace('-', '\n') for x in inClassesLabels])
+        dn = hierarchy.dendrogram(Z, labels=nplabels)
+
+        plt.style.use("seaborn-whitegrid")
+        plt.title("Dendogram to find clusters")
+        plt.ylabel("Distance")
+        plt.savefig(self._getExtraPath("dendogram.png"))
+
 
     def createOutputStep(self):
-
-        # self.intersectsList.sort(key=lambda e: e[0], reverse=True)
-
-        # print("   ---   S O R T E D:   ---")
-        # numberOfPart = 0
-        # for classItem in self.intersectsList:
-        #     printTuple = (classItem[0], classItem[2])
-        #     print(printTuple)
-        #     numberOfPart += classItem[0]
-
-        # print('Number of intersections: %d' % len(self.intersectsList))
-        # print('Total of particles: %d' % numberOfPart)
 
         inputParticles = self.inputMultiClasses[0].get().getImages()
         outputClasses = self._createSetOfClasses3D(inputParticles)
 
-        for classItem in self.intersectsList:
+        currDB = self.intersectsList
+        if not currDB:  # rescuing data after a failure/continue
+            prevInter = 'intersection%d.pkl' % (len(self.inputMultiClasses) - 1)
+            with open(self._getTmpPath(prevInter), 'rb') as fileR:
+                currDB = pickle.load(fileR)
+
+        for classItem in currDB:
             numOfPart = classItem[0]
             partIds = classItem[1]
             setRepId = classItem[2]
@@ -151,11 +201,11 @@ class XmippProtConsensusClasses3D(EMProtocol):
             enabledClass = outputClasses[newClass.getObjId()]
             enabledClass.enableAppend()
             for itemId in partIds:
-                enabledClass.append(inputParticles[itemId])
+                enabledClass.append(inputParticles[itemId].clone())
 
             outputClasses.update(enabledClass)
 
-        self._defineOutputs(outputClasses=outputClasses)
+        self._defineOutputs(nodeIntersectionClasses=outputClasses)
         for item in self.inputMultiClasses:
             self._defineSourceRelation(item, outputClasses)
 
@@ -174,34 +224,71 @@ class XmippProtConsensusClasses3D(EMProtocol):
                  ["More than one Input Classes is needed to compute the consensus."]
         return errors
 
-    # --------------------------- UTILS functions ------------------------------
-    def intersectClasses(self, setId1, clId1, ids1,
-                               setId2, clId2, ids2, clsSize2=None):
-        size1 = len(ids1)
-        size2 = len(ids2) if clsSize2 is None else clsSize2
+# --------------------------- WORKERS functions ------------------------------
+def intersectClasses(setId1, clId1, ids1,
+                     setId2, clId2, ids2, clsSize2=None):
+    size1 = len(ids1)
+    size2 = len(ids2) if clsSize2 is None else clsSize2
 
-        inter = ids1.intersection(ids2)
+    inter = ids1.intersection(ids2)
 
-        if size1 < size2:
-            setId = setId1
-            clsId = clId1
-            clsSize = size1
-        else:
-            setId = setId2
-            clsId = clId2
-            clsSize = size2
+    if size1 < size2:
+        setId = setId1
+        clsId = clId1
+        clsSize = size1
+    else:
+        setId = setId2
+        clsId = clId2
+        clsSize = size2
 
-        # print(" ")
-        # print(" - Intersection of cl%d of set%d (%d part.) and "
-        #                          "cl%d of set%d (%d part.):"
-        #        % (clId1, setId1, len(ids1), clId2, setId2, len(ids2)))
-        # print("    Size1=%d < Size2=%d = %s" 
-        #        % (size1, size2, size1<size2))
-        # print("      -> from set %d calss %d, with %d part. in the intersection." 
-        #        % (setId, clsId, len(inter)))
-        # print(" -  -  -  -  -  -  -  -  -  -")
+    # print(" ")
+    # print(" - Intersection of cl%d of set%d (%d part.) and "
+    #                          "cl%d of set%d (%d part.):"
+    #        % (clId1, setId1, len(ids1), clId2, setId2, len(ids2)))
+    # print("    Size1=%d < Size2=%d = %s"
+    #        % (size1, size2, size1<size2))
+    # print("      -> from set %d calss %d, with %d part. in the intersection."
+    #        % (setId, clsId, len(inter)))
+    # print(" -  -  -  -  -  -  -  -  -  -")
 
-        return len(inter), inter, setId, clsId, clsSize
+    return len(inter), inter, setId, clsId, clsSize
 
-    def distance(self):
-        pass
+def distanceClassToNode(clsIds, nodeIds, i, k, doPrint=True):
+
+    value = 1 - len(clsIds.intersection(nodeIds)) / float(len(clsIds))
+    # print("C_%s = %s" % (i, clsIds))
+    # print("N_%s = %s" % (k, nodeIds))
+    if doPrint:
+        print("d(C_%s, N_%s) = 1 - %s / %s = %f"
+              % (i, k, len(clsIds.intersection(nodeIds)), float(len(clsIds)), value))
+
+    return value
+
+def getClassDistances(classes, nodes, classLabels=None):
+    classDistances = {}
+
+    for i, inClass_i in enumerate(classes):
+        for j, inClass_j in enumerate(classes):
+            if j <= i:
+                continue
+            sum_k = 0
+            for k, node in enumerate(nodes):
+                d_ik = distanceClassToNode(inClass_i, node, i, k, False)
+                d_jk = distanceClassToNode(inClass_j, node, j, k, False)
+                sum_k += abs(d_ik - d_jk) * abs(d_ik - d_jk) / float(len(node))
+            classDistances['%d,%d' % (i, j)] = float(sum_k)  # passing value
+
+    if classLabels:
+        print('\nDistances:')
+        print(' ' * 23 + '      '.join(classLabels[:0:-1]))
+        print('  ' * 9 + '-' * 19 * len(classes))
+        for i in range(0, len(classes) - 1):
+            line = ["%s   | " % classLabels[i]]
+            for j in range(len(classes) - 1, 0, -1):
+                if j <= i:
+                    continue
+                line.append("   %.6f   " % classDistances['%d,%d' % (i, j)])
+            print('\t'.join(line))
+        print(' ' * len(classLabels[-1] + '\t'.join(classLabels[:])))
+
+    return classDistances
