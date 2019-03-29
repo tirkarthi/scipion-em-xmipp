@@ -27,9 +27,10 @@
 import pickle
 
 from pyworkflow import VERSION_2_0
-from pyworkflow.em import Class3D
+from pyworkflow.em import Class3D, String
 from pyworkflow.em.protocol.protocol import EMProtocol
 from pyworkflow.protocol.params import MultiPointerParam
+import pyworkflow.utils as pwutils
 
 
 class XmippProtConsensusClasses3D(EMProtocol):
@@ -121,9 +122,10 @@ class XmippProtConsensusClasses3D(EMProtocol):
                 set2Id = currTuple[2]
                 cls2Id = currTuple[3]
                 clSize = currTuple[4]
+                label  = currTuple[5]
 
                 interTuple = intersectClasses(set1Id, cls1Id, ids1,
-                                              set2Id, cls2Id, ids2, clSize)
+                                              set2Id, cls2Id, ids2, clSize, label)
                 newList.append(interTuple)
                 
         self.intersectsList = newList
@@ -149,8 +151,9 @@ class XmippProtConsensusClasses3D(EMProtocol):
                 currDB = pickle.load(fileR)
 
         nodes = [tup[1] for tup in currDB if tup[0] > 0]
+        nodesLabels = [tup[5] for tup in currDB if tup[0] > 0]
 
-        classDistances = getClassDistances(inputClasses, nodes, inClassesLabels)
+        classDistances = getNodeDistances(inputClasses, nodes, range(1, len(nodes)+1))
 
 
         # Creating the dendogram. FIXME: Take this and put it in the viewer!!
@@ -162,12 +165,13 @@ class XmippProtConsensusClasses3D(EMProtocol):
         Y = classDistances.values()
         Z = hierarchy.linkage(np.asarray(Y), 'single')
         plt.figure()
-        nplabels = np.asarray([x.replace('-', '\n') for x in inClassesLabels])
+        nplabels = np.asarray([x.replace(':', '\n') for x in nodesLabels])
         dn = hierarchy.dendrogram(Z, labels=nplabels)
 
         plt.style.use("seaborn-whitegrid")
-        plt.title("Dendogram to find clusters")
+        # plt.title("Dendogram to find clusters")
         plt.ylabel("Distance")
+        plt.title(u"Node: cls1\u2229cls2\u2229cls3...")
         plt.savefig(self._getExtraPath("dendogram.png"))
 
 
@@ -187,6 +191,10 @@ class XmippProtConsensusClasses3D(EMProtocol):
             partIds = classItem[1]
             setRepId = classItem[2]
             clsRepId = classItem[3]
+            nodeLabel = classItem[5]
+
+            if not partIds:
+                continue
 
             setRep = self.inputMultiClasses[setRepId].get()
             clRep = setRep[clsRepId]
@@ -195,6 +203,7 @@ class XmippProtConsensusClasses3D(EMProtocol):
             # newClass.copyInfo(clRep)
             newClass.setAcquisition(clRep.getAcquisition())
             newClass.setRepresentative(clRep.getRepresentative())
+            newClass.nodeLabel = String(nodeLabel)
 
             outputClasses.append(newClass)
 
@@ -226,7 +235,7 @@ class XmippProtConsensusClasses3D(EMProtocol):
 
 # --------------------------- WORKERS functions ------------------------------
 def intersectClasses(setId1, clId1, ids1,
-                     setId2, clId2, ids2, clsSize2=None):
+                     setId2, clId2, ids2, clsSize2=None, label=''):
     size1 = len(ids1)
     size2 = len(ids2) if clsSize2 is None else clsSize2
 
@@ -241,28 +250,37 @@ def intersectClasses(setId1, clId1, ids1,
         clsId = clId2
         clsSize = size2
 
-    # print(" ")
-    # print(" - Intersection of cl%d of set%d (%d part.) and "
-    #                          "cl%d of set%d (%d part.):"
-    #        % (clId1, setId1, len(ids1), clId2, setId2, len(ids2)))
-    # print("    Size1=%d < Size2=%d = %s"
-    #        % (size1, size2, size1<size2))
-    # print("      -> from set %d calss %d, with %d part. in the intersection."
-    #        % (setId, clsId, len(inter)))
-    # print(" -  -  -  -  -  -  -  -  -  -")
+    if pwutils.envVarOn('SCIPION_DEBUG'):
+        print(" ")
+        print(" - Intersection of cl%d of set%d (%d part.) and "
+                                 "cl%d of set%d (%d part.):"
+               % (clId1, setId1, len(ids1), clId2, setId2, len(ids2)))
+        print("    Size1=%d < Size2=%d = %s"
+               % (size1, size2, size1<size2))
+        print("      -> from set %d calss %d, with %d part. in the intersection."
+               % (setId, clsId, len(inter)))
+        print(" -  -  -  -  -  -  -  -  -  -")
 
-    return len(inter), inter, setId, clsId, clsSize
+    if label == '':  # u'\u2229'
+        label = '%d:%d' % (clId1, clId2)
+    else:
+        label += ':%d' % (clId1)
+
+    return len(inter), inter, setId, clsId, clsSize, label
+
 
 def distanceClassToNode(clsIds, nodeIds, i, k, doPrint=True):
 
     value = 1 - len(clsIds.intersection(nodeIds)) / float(len(clsIds))
-    # print("C_%s = %s" % (i, clsIds))
-    # print("N_%s = %s" % (k, nodeIds))
-    if doPrint:
-        print("d(C_%s, N_%s) = 1 - %s / %s = %f"
-              % (i, k, len(clsIds.intersection(nodeIds)), float(len(clsIds)), value))
+    if doPrint and pwutils.envVarOn('SCIPION_DEBUG'):
+        if False:  # Verbose debug
+            print("C_%s = %s" % (i, clsIds))
+            print("N_%s = %s" % (k, nodeIds))
+        print("d(C_%s, N_%s) = 1 - %s / %s = %f" % (i, k,
+                len(clsIds.intersection(nodeIds)), float(len(clsIds)), value))
 
     return value
+
 
 def getClassDistances(classes, nodes, classLabels=None):
     classDistances = {}
@@ -292,3 +310,39 @@ def getClassDistances(classes, nodes, classLabels=None):
         print(' ' * len(classLabels[-1] + '\t'.join(classLabels[:])))
 
     return classDistances
+
+
+def getNodeDistances(classes, nodes, nodeLabels=None):
+
+    nodeDistances = {}
+    for i, node_i in enumerate(nodes):
+        for j, node_j in enumerate(nodes):
+            if j <= i:
+                continue
+            sum_k = 0
+            for k, cls in enumerate(classes):
+                d_ik = distanceClassToNode(cls, node_i, i, k)
+                d_jk = distanceClassToNode(cls, node_j, j, k, False)
+                sum_k += abs(d_ik - d_jk) * abs(d_ik - d_jk) / float(len(cls))
+            nodeDistances['%d,%d' % (i, j)] = float(sum_k)  # passing value
+
+    factor = 1/(float(max(nodeDistances.values())))
+    nodeDistances = {k: v*factor for k, v in nodeDistances.iteritems()}
+
+    if nodeLabels and len(nodeLabels) < 30:
+        print('\nDistance between nodes:')
+        print(' ' * 12 + '      '.join([str(x) for x in nodeLabels[:0:-1]]))
+        print(' ' * 6 + '-' * 8 * len(nodes))
+        for i in range(0, len(nodes) - 1):
+            if i < 9:  # nodeLabel[i]=i+1
+                line = ["  %d  | " % nodeLabels[i]]
+            else:
+                line = ["%d  | " % nodeLabels[i]]
+            for j in range(len(nodes) - 1, 0, -1):
+                if j <= i:
+                    continue
+                line.append(" %.2f " % nodeDistances['%d,%d' % (i, j)])
+            print(' '.join(line))
+        print("")
+
+    return nodeDistances
