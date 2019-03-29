@@ -112,4 +112,5 @@ class XmippProtParticleBoxsize(ProtMicrographs):
         return ['']
 
     def _validate(self):
-        return validateDLtoolkit(model=('boxsize', 'weights.hdf5'))
+        return validateDLtoolkit(model=[('boxsize', 'weights.hdf5'),
+                                        ('boxsize', 'feature_scaler.pkl')])
