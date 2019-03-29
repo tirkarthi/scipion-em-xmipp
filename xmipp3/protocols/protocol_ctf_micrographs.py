@@ -112,11 +112,40 @@ class XmippProtCTFMicrographs(em.ProtCTFMicrographs):
                            'automatically tries by default the suggested '
                            'Downsample factor; and if it fails, +1; '
                            'and if it fails, -1.')
+        form.addParam('refineAmplitudeContrast', params.BooleanParam, default=False,
+                      label='Allow amplitude constrast refinement')
 
     def getInputMicrographs(self):
         return self.inputMicrographs.get()
 
     # --------------------------- STEPS functions ------------------------------
+    def _loadSet(self, inputSet, SetClass, getKeyFunc):
+        """ method overrided in order to check if the previous CTF estimation
+            is ready when doInitialCTF=True and streaming is activated
+        """
+        setFn = inputSet.getFileName()
+        self.debug("Loading input db: %s" % setFn)
+        updatedSet = SetClass(filename=setFn)
+        updatedSet.loadAllProperties()
+        streamClosed = updatedSet.isStreamClosed()
+        initCtfCheck = lambda idItem: True
+        if self.doInitialCTF.get():
+            ctfSet = em.SetOfCTF(filename=self.ctfRelations.get().getFileName())
+            ctfSet.loadAllProperties()
+            streamClosed = streamClosed and ctfSet.isStreamClosed()
+            if not streamClosed:
+                initCtfCheck = lambda idItem: idItem in ctfSet
+
+        newItemDict = em.OrderedDict()
+        for item in updatedSet:
+            micKey = item.getObjId()  # getKeyFunc(item)
+            if micKey not in self.micDict and initCtfCheck(micKey):
+                newItemDict[micKey] = item.clone()
+        updatedSet.close()
+        self.debug("Closed db.")
+        return newItemDict, streamClosed
+
+
     def calculateAutodownsampling(self,samplingRate, coeff=1.5):
         ctfDownFactor = coeff / samplingRate
         if ctfDownFactor < 1.0:
@@ -156,10 +185,12 @@ class XmippProtCTFMicrographs(em.ProtCTFMicrographs):
         localParams['ctfmodelSize'] = self.windowSize.get()
 
         if self.doInitialCTF:
-            if self.ctfDict[micName] > 0:
-                localParams['defocusU'], localParams['phaseShift0'] = \
-                    self.ctfDict[micName]
-                localParams['defocus_range'] = 0.1 * localParams['defocusU']
+            # getting prevValues (in streaming couldn't be defined yet)
+            prevValues = (self.ctfDict[micName] if micName in self.ctfDict
+                          else self.getSinglePreviousParameters(mic.getObjId()))
+
+            localParams['defocusU'], localParams['phaseShift0'] = prevValues
+            localParams['defocus_range'] = 0.1 * localParams['defocusU']
         else:
             ma = self._params['maxDefocus']
             mi = self._params['minDefocus']
@@ -224,9 +255,8 @@ class XmippProtCTFMicrographs(em.ProtCTFMicrographs):
             print >> sys.stderr, "xmipp_ctf_estimate_from_micrograph has " \
                      "failed with micrograph %s" % finalName
 
-    def _restimateCTF(self, micId):
+    def _reEstimateCTF(self, mic, ctfModel):
         """ Run the estimate CTF program """
-        ctfModel = self.recalculateSet[micId]
         self._prepareRecalCommand(ctfModel)
         # CTF estimation with Xmipp
         self.runJob(self._program, self._args % self._params)
@@ -281,29 +311,42 @@ class XmippProtCTFMicrographs(em.ProtCTFMicrographs):
 
         if self.findPhaseShift:
             self._args += "--phase_shift %(phaseShift0)f --VPP_radius 0.005"
-
+        if self.refineAmplitudeContrast:
+            self._args += "--refine_amplitude_contrast"
         for par, val in params.iteritems():
             self._args += " --%s %s" % (par, str(val))
+
+    def getPreviousValues(self, ctf):
+        phaseShift0 = 0.0
+        if self.findPhaseShift:
+            if ctf.hasPhaseShift():
+                phaseShift0 = ctf.getPhaseShift()
+            else:
+                phaseShift0 = 1.57079  # pi/2
+            ctfValues = (ctf.getDefocusU(), phaseShift0)
+        else:
+            ctfValues = (ctf.getDefocusU(), phaseShift0)
+
+        return ctfValues
+
+    def getSinglePreviousParameters(self, micId):
+        if self.ctfRelations.hasValue():
+            ctf = self.ctfRelations.get()[micId]
+            return self.getPreviousValues(ctf)
 
     def getPreviousParameters(self):
         if self.ctfRelations.hasValue():
             self.ctfDict = {}
             for ctf in self.ctfRelations.get():
                 ctfName = ctf.getMicrograph().getMicName()
-                phaseShift0 = 0.0
-                if self.findPhaseShift:
-                    if ctf.hasPhaseShift():
-                        phaseShift0=ctf.getPhaseShift()
-                    else:
-                        phaseShift0 = 1.57079 # pi/2
-                    self.ctfDict[ctfName] = (ctf.getDefocusU(),phaseShift0)
-                else:
-                    self.ctfDict[ctfName] = (ctf.getDefocusU(), phaseShift0)
+                self.ctfDict[ctfName] = self.getPreviousValues(ctf)
 
         if self.findPhaseShift and not self.ctfRelations.hasValue():
             self._params['phaseShift0'] = 1.57079
 
-    def _prepareCommand(self):
+    def _defineCtfParamsDict(self):
+        em.ProtCTFMicrographs._defineCtfParamsDict(self)
+
         if not hasattr(self, "ctfDict"):
             self.getPreviousParameters()
 
@@ -312,13 +355,14 @@ class XmippProtCTFMicrographs(em.ProtCTFMicrographs):
 
         # Mapping between base protocol parameters and the package specific
         # command options
-        self.__params = {'kV': self._params['voltage'],
-                         'Cs': self._params['sphericalAberration'],
-                         #'ctfmodelSize': self._params['windowSize'],
-                         'Q0': self._params['ampContrast'],
-                         'min_freq': self._params['lowRes'],
-                         'max_freq': self._params['highRes'],
-                         #'pieceDim': self._params['windowSize']
+        params = self.getCtfParamsDict()
+        self.__params = {'kV': params['voltage'],
+                         'Cs': params['sphericalAberration'],
+                         #'ctfmodelSize': params['windowSize'],
+                         'Q0': params['ampContrast'],
+                         'min_freq': params['lowRes'],
+                         'max_freq': params['highRes'],
+                         #'pieceDim': params['windowSize']
                          }
 
         self._prepareArgs(self.__params)
@@ -341,21 +385,21 @@ class XmippProtCTFMicrographs(em.ProtCTFMicrographs):
             micDir = self._getMicrographDir(mic)
             downFactor = self._calculateDownsampleList(mic.getSamplingRate())[0]
 
-            params2 = {'psdFn': os.path.join(micDir, psdFile),
-                       'defocusU': float(line[0]),
-                       }
-            self._params = dict(self._params.items() + params2.items())
+            params = dict(self.getCtfParamsDict())
+            params.update(self.getRecalCtfParamsDict())
+            params.update({'psdFn': os.path.join(micDir, psdFile),
+                           'defocusU': float(line[0])
+                           })
             # Mapping between base protocol parameters and the package specific
             # command options
-            self.__params = {'sampling_rate': self._params['samplingRate']
-                                              * downFactor,
+            self.__params = {'sampling_rate': params['samplingRate'],
                              'downSamplingPerformed': downFactor,
-                             'kV': self._params['voltage'],
-                             'Cs': self._params['sphericalAberration'],
+                             'kV': params['voltage'],
+                             'Cs': params['sphericalAberration'],
                              'min_freq': line[3],
                              'max_freq': line[4],
-                             'defocusU': self._params['defocusU'],
-                             'Q0': self._params['ampContrast'],
+                             'defocusU': params['defocusU'],
+                             'Q0': params['ampContrast'],
                              'defocus_range': 5000,
                              'ctfmodelSize': size
                              }

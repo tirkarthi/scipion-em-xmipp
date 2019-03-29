@@ -39,6 +39,7 @@ from .protocol_apply_transformation_matrix import XmippProtApplyTransformationMa
 from .protocol_break_symmetry import XmippProtAngBreakSymmetry
 from .protocol_cl2d_align import XmippProtCL2DAlign
 from .protocol_cl2d import XmippProtCL2D
+from .protocol_classify_kmeans2d import XmippProtKmeansClassif2D
 from .protocol_cltomo import XmippProtCLTomo
 from .protocol_classification_gpuCorr import XmippProtGpuCrrCL2D
 from .protocol_classification_gpuCorr_semi import XmippProtStrGpuCrrSimple
@@ -53,7 +54,8 @@ from .protocol_ctf_correct_wiener2d import XmippProtCTFCorrectWiener2D
 from .protocol_consensus_classes3D import XmippProtConsensusClasses3D
 from .protocol_subtract_projection import XmippProtSubtractProjection
 from .protocol_denoise_particles import XmippProtDenoiseParticles
-from .protocol_eliminate_empty_particles import XmippProtEliminateEmptyParticles
+from .protocol_eliminate_empty_images import XmippProtEliminateEmptyParticles, \
+                                             XmippProtEliminateEmptyClasses
 from .protocol_extract_particles import XmippProtExtractParticles
 from .protocol_extract_particles_movies import XmippProtExtractMovieParticles
 from .protocol_extract_particles_pairs import XmippProtExtractParticlesPairs
@@ -80,7 +82,7 @@ from .protocol_preprocess_micrographs import XmippProtPreprocessMicrographs
 from .protocol_projmatch import XmippProtProjMatch
 from .protocol_random_conical_tilt import XmippProtRCT
 from .protocol_ransac import XmippProtRansac
-from .protocol_realignment_classes import XmippProtReAlignClasses
+from .protocol_center_particles import XmippProtCenterParticles
 from .protocol_reconstruct_fourier import XmippProtReconstructFourier
 from .protocol_reconstruct_highres import XmippProtReconstructHighRes
 from .protocol_reconstruct_significant import XmippProtReconstructSignificant
