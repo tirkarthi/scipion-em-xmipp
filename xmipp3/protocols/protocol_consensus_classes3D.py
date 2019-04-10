@@ -63,7 +63,7 @@ class XmippProtConsensusClasses3D(EMProtocol):
                 self._insertFunctionStep('compareOthersStep', i,
                                      self.inputMultiClasses[i].get().getObjId())
 
-        self._insertFunctionStep('computingDistances')
+        self._insertFunctionStep('computingDistancesStep')
 
         self._insertFunctionStep('createOutputStep')
 
@@ -96,7 +96,7 @@ class XmippProtConsensusClasses3D(EMProtocol):
 
         # saving data just in case of a failure in the next step
         with open(self._getTmpPath('intersection1.pkl'), 'wb') as fileW1:
-            pickle.dump(newList, fileW1, pickle.HIGHEST_PROTOCOL)
+            pickle.dump(newList, fileW1, 2)
 
     def compareOthersStep(self, set1Id, objId):
         """ We find the intersections for the rest of sets of classes
@@ -131,18 +131,20 @@ class XmippProtConsensusClasses3D(EMProtocol):
         self.intersectsList = newList
         intersectFn = 'intersection%d.pkl' % set1Id
         with open(self._getTmpPath(intersectFn), 'wb') as fileW2:
-            pickle.dump(newList, fileW2, pickle.HIGHEST_PROTOCOL)
+            pickle.dump(newList, fileW2, 2)
 
-    def computingDistances(self):
+    def computingDistancesStep(self):
 
         inputClasses = []
         inClassesLabels = []
+        nParts = []
         for clsSetId, clsSet in enumerate(self.inputMultiClasses):
             for cls in clsSet.get():
                 clsId = cls.getObjId()
                 inClassesLabels.append("Set%d-Cls%d" % (clsSetId, clsId))
                 idsInClass = cls.getIdSet()
                 inputClasses.append(idsInClass)
+                nParts.append(len(clsSet.get()))
 
         currDB = self.intersectsList
         if not currDB:  # rescuing data after a failure/continue
@@ -150,30 +152,24 @@ class XmippProtConsensusClasses3D(EMProtocol):
             with open(self._getTmpPath(prevInter), 'rb') as fileR:
                 currDB = pickle.load(fileR)
 
-        nodes = [tup[1] for tup in currDB if tup[0] > 0]
+        nodesList = [tup[1] for tup in currDB if tup[0] > 0]
+        nodes = {str(i): node for i, node in enumerate(nodesList)}
         nodesLabels = [tup[5] for tup in currDB if tup[0] > 0]
+        nodesLabelsDict = {i: tup[5] for i, tup in enumerate(currDB) if tup[0] > 0}
+        classDistances = getNodeDistances(inputClasses, nodes, nParts,
+                                          range(1, len(nodes)+1))
 
-        classDistances = getNodeDistances(inputClasses, nodes, range(1, len(nodes)+1))
+        newNodes = dict(nodes)  # passing value instead of reference!
+        newDistances = dict(classDistances)  # passing value instead of reference!
+        for idx_N in range(0, len(nodes)):
+            newNodes, newDistances = linkNodes(newNodes, newDistances)
 
+        classDistDict = {'nodesLabels': nodesLabels,
+                         'classDistances': classDistances}
 
-        # Creating the dendogram. FIXME: Take this and put it in the viewer!!
-
-        from scipy.cluster import hierarchy
-        import matplotlib.pyplot as plt
-        import numpy as np
-
-        Y = classDistances.values()
-        Z = hierarchy.linkage(np.asarray(Y), 'single')
-        plt.figure()
-        nplabels = np.asarray([x.replace(':', '\n') for x in nodesLabels])
-        dn = hierarchy.dendrogram(Z, labels=nplabels)
-
-        plt.style.use("seaborn-whitegrid")
-        # plt.title("Dendogram to find clusters")
-        plt.ylabel("Distance")
-        plt.title(u"Node: cls1\u2229cls2\u2229cls3...")
-        plt.savefig(self._getExtraPath("dendogram.png"))
-
+        classDistFn = 'classDistances.pkl'
+        with open(self._getExtraPath(classDistFn), 'wb') as pklFile:
+            pickle.dump(classDistDict, pklFile, 2)
 
     def createOutputStep(self):
 
@@ -203,7 +199,7 @@ class XmippProtConsensusClasses3D(EMProtocol):
             # newClass.copyInfo(clRep)
             newClass.setAcquisition(clRep.getAcquisition())
             newClass.setRepresentative(clRep.getRepresentative())
-            newClass.nodeLabel = String(nodeLabel)
+            newClass._xmipp_nodeLabel = String(nodeLabel)
 
             outputClasses.append(newClass)
 
@@ -270,19 +266,32 @@ def intersectClasses(setId1, clId1, ids1,
 
 
 def distanceClassToNode(clsIds, nodeIds, i, k, doPrint=True):
-
+    """ NOT USED """
     value = 1 - len(clsIds.intersection(nodeIds)) / float(len(clsIds))
-    if doPrint and pwutils.envVarOn('SCIPION_DEBUG'):
-        if False:  # Verbose debug
-            print("C_%s = %s" % (i, clsIds))
-            print("N_%s = %s" % (k, nodeIds))
+    if doPrint:# and pwutils.envVarOn('SCIPION_DEBUG'):
+        # ultra verbose debug
+        # print("C_%s = %s" % (i, clsIds))
+        # print("N_%s = %s" % (k, nodeIds))
         print("d(C_%s, N_%s) = 1 - %s / %s = %f" % (i, k,
+                len(clsIds.intersection(nodeIds)), float(len(clsIds)), value))
+
+    return value
+
+def similarityClassToNode(nodeIds, clsIds, i, k, doPrint=False):
+
+    value = len(clsIds.intersection(nodeIds)) / float(len(clsIds))
+    if doPrint:
+        # ultra verbose debug
+        # print("N_%s = %s" % (i, nodeIds))
+        # print("C_%s = %s" % (k, clsIds))
+        print("d(N_%s, C_%s) = %s / %s = %f" % (i, k,
                 len(clsIds.intersection(nodeIds)), float(len(clsIds)), value))
 
     return value
 
 
 def getClassDistances(classes, nodes, classLabels=None):
+    """ NOT USED """
     classDistances = {}
 
     for i, inClass_i in enumerate(classes):
@@ -312,27 +321,43 @@ def getClassDistances(classes, nodes, classLabels=None):
     return classDistances
 
 
-def getNodeDistances(classes, nodes, nodeLabels=None):
+def getNodeDistances(classes, nodes, nPartitions, nodeLabels=None):
 
     nodeDistances = {}
-    for i, node_i in enumerate(nodes):
-        for j, node_j in enumerate(nodes):
+    # for i, node_i in enumerate(nodes):
+    #     for j, node_j in enumerate(nodes):
+    #         if j <= i:
+    #             continue
+    #         sum_k = 0
+    #         for k, cls in enumerate(classes):
+    #             d_ik = distanceClassToNode(cls, node_i, i, k)
+    #             d_jk = distanceClassToNode(cls, node_j, j, k, False)
+    #             sum_k += abs(d_ik - d_jk) / float(nPartitions[k])
+    #         nodeDistances['%d,%d' % (i, j)] = sum_k
+    iDone = []
+    for i, node_i in enumerate(nodes.values()):
+        for j, node_j in enumerate(nodes.values()):
             if j <= i:
                 continue
-            sum_k = 0
+            dot_k = 0
             for k, cls in enumerate(classes):
-                d_ik = distanceClassToNode(cls, node_i, i, k)
-                d_jk = distanceClassToNode(cls, node_j, j, k, False)
-                sum_k += abs(d_ik - d_jk) * abs(d_ik - d_jk) / float(len(cls))
-            nodeDistances['%d,%d' % (i, j)] = float(sum_k)  # passing value
+                d_ik = similarityClassToNode(node_i, cls, i, k,
+                                             pwutils.envVarOn('SCIPION_DEBUG')
+                                             and not i in iDone)
+                d_jk = similarityClassToNode(node_j, cls, j, k, False)
+                dot_k += d_ik * d_jk
+            iDone.append(i)
+            if pwutils.envVarOn('SCIPION_DEBUG'):
+                print("Similarity(i=%d, j=%d) = %s" % (i, j, dot_k))
+            nodeDistances['%d,%d' % (i, j)] = dot_k
 
-    factor = 1/(float(max(nodeDistances.values())))
-    nodeDistances = {k: v*factor for k, v in nodeDistances.iteritems()}
+    eps = 0.1*min([x for x in nodeDistances.values() if x > 0])
+    nodeDistances = {k: 1/(v+eps) for k, v in nodeDistances.iteritems()}
 
     if nodeLabels and len(nodeLabels) < 30:
         print('\nDistance between nodes:')
-        print(' ' * 12 + '      '.join([str(x) for x in nodeLabels[:0:-1]]))
-        print(' ' * 6 + '-' * 8 * len(nodes))
+        print(' ' * 15 + '               '.join([str(x) for x in nodeLabels[:0:-1]]))
+        print(' ' * 6 + '-' * 15 * len(nodes))
         for i in range(0, len(nodes) - 1):
             if i < 9:  # nodeLabel[i]=i+1
                 line = ["  %d  | " % nodeLabels[i]]
@@ -341,8 +366,84 @@ def getNodeDistances(classes, nodes, nodeLabels=None):
             for j in range(len(nodes) - 1, 0, -1):
                 if j <= i:
                     continue
-                line.append(" %.2f " % nodeDistances['%d,%d' % (i, j)])
+                line.append(" {:.2e} ".format(nodeDistances['%d,%d' % (i, j)]))
             print(' '.join(line))
         print("")
 
     return nodeDistances
+
+def getEntropy(collection):
+    import math
+    return sum([-p*math.log(p, 2) for p in collection])
+
+def linkNodes(nodes, distances):
+    """ We will merge the 2 nodes that minimize the system entropy increment
+          times the distance between that nodes
+    """
+    p0 = {k: len(v) for k, v in nodes.iteritems()}
+    p0_M = 1#sum(p0.values())
+    p0 = {k: v/float(p0_M) for k, v in p0.iteritems()}
+    H0 = getEntropy(p0.values())
+
+    # print("nodes:")
+    # for k, v in nodes.iteritems():
+    #     print("%s : %s" % (k, v))
+    # print(" --------- ")
+    #
+    # print("p0:")
+    # for k, v in p0.iteritems():
+    #     print("%s : %s" % (k, v))
+    # print(" --------- ")
+    #
+    # print("distances:")
+    # for k, v in distances.iteritems():
+    #     print("%s : %s" % (k, v))
+    # print(" --------- ")
+
+    def sortKeys(ik, jk):
+        if int(ik.split(',')[0]) > int(jk.split(',')[0]):
+            aux = str(ik)
+            ik = str(jk)
+            jk = aux
+        else:
+            ik = str(ik)
+            jk = str(jk)
+        return ik, jk
+
+    costDict = {}
+    kNodes = nodes.keys()
+    for i, iK in enumerate(kNodes):
+        for j, jK in enumerate(kNodes):
+            if j <= i:
+                continue
+            iKey, jKey = sortKeys(iK, jK)
+
+            pMerged = dict(p0)  # passing value instead of reference!
+            print("p0: %s" % p0)
+            p_i = pMerged.pop(iKey)
+            p_j = pMerged.pop(jKey)
+            pMerged['%s;%s' % (iKey, jKey)] = p_i + p_j
+            print("pF: %s" % pMerged)
+
+            H = getEntropy(pMerged.values())
+            costDict['%s;%s'%(iKey,jKey)] = (H0 - H)*distances['%s,%s'%(iKey,jKey)]
+
+            if pwutils.envVarOn('SCIPION_DEBUG'):
+                print("costDict['%s;%s']=(%s - %s) * %s = %f"
+                      % (iKey, jKey, H, H0, distances['%s,%s'%(iKey,jKey)],
+                         costDict['%s;%s'%(iKey,jKey)]))
+            print
+
+    minKey = min(costDict, key=costDict.get)
+    minKeyI = minKey.split(';')[0]
+    minKeyJ = minKey.split(';')[1]
+    print(" > Merging nodes '%s' and '%s' (cost: %f)"
+          % (minKeyI, minKeyJ, costDict[minKey]))
+
+    mergeA = list(nodes.pop(minKeyI))
+    mergeB = list(nodes.pop(minKeyJ))
+    nodes.update({"%s-%s" % (minKeyI, minKeyJ): set(mergeA+mergeB)})
+    for k, v in nodes.iteritems():
+        print("%s : %s" % (k, v))
+
+    raise Exception("PETA")
