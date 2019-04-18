@@ -93,9 +93,10 @@ class XmippProtTriggerData(EMProtocol):
         self.setImagesType()
 
         # steps
-        imsSteps = self._insertFunctionStep('delayStep')
-        self._insertFunctionStep('createOutputStep',
-                                 prerequisites=[imsSteps], wait=True)
+        idSteps = self._insertFunctionStep('fillingOutputStep',
+                                           prerequisites=[])
+        self._insertFunctionStep(self._getFirstJoinStep(),
+                                 prerequisites=[idSteps], wait=True)
 
     def _stepsCheck(self):
         self._checkNewInput()
@@ -140,7 +141,12 @@ class XmippProtTriggerData(EMProtocol):
         self.imsSet.close()
 
         # filling the output if needed
-        self._fillingOutput()
+        outputStep = self._getFirstJoinStep()
+        stepId = self._insertFunctionStep('fillingOutputStep',
+                                          prerequisites=[])
+        if outputStep is not None:
+            outputStep.addPrerequisites([stepId])
+        self.updateSteps()
 
     def _checkNewOutput(self):
         if getattr(self, 'finished', False):
@@ -153,20 +159,20 @@ class XmippProtTriggerData(EMProtocol):
                           (self.allImages and self.streamClosed and
                            len(self.images) == len(self.imsSet)) )
         outputStep = self._getFirstJoinStep()
-        deps = []
         if self.finished:  # Unlock createOutputStep if finished all jobs
-            self._fillingOutput()  # To do the last filling
-            if outputStep and outputStep.isWaiting():
-                outputStep.setStatus(cons.STATUS_NEW)
-        else:
-            delayId = self._insertFunctionStep('delayStep', prerequisites=[])
-            deps.append(delayId)
+            stepId = self._insertFunctionStep('fillingOutputStep',
+                                              prerequisites=[])  # To do the last filling
+            if outputStep:
+                outputStep.addPrerequisites([stepId])
+        # else:
+        #     delayId = self._insertFunctionStep('delayStep', prerequisites=[])
+        #     deps.append(delayId)
 
-        if outputStep is not None:
-            outputStep.addPrerequisites(*deps)
+        if outputStep and outputStep.isWaiting():
+                outputStep.setStatus(cons.STATUS_NEW)
         self.updateSteps()
 
-    def _fillingOutput(self):
+    def fillingOutputStep(self):
         imsSqliteFn = '%s.sqlite' % self.getImagesType('lower')
         outputName = 'output%s' % self.getImagesType()
         if len(self.images) >= self.outputSize:
