@@ -38,16 +38,16 @@ from pyworkflow.protocol.params import BooleanParam, IntParam, PointerParam
 
 class XmippProtTriggerData(EMProtocol):
     """
-    Waits until certain number of images is prepared and then
-    send them to output.
+    Waits until certain number of images is ready and then
+    sends them to the output.
     It can be done in 3 ways:
         - If *Send all particles to output?*' is _No_:
             Once the number of images is reached, a setOfImages is returned and
-            the protocols finished (ending the streaming from this point).
+            the protocol finishes (ending the streaming from this point).
         - If *Send all particles to output?*' is _Yes_ and:
             - If *Split particles to multiple sets?* is _Yes_:
                 Multiple closed outputs will be returned as soon as
-                the number of images is reached.
+                the number of images is reached (keep in streaming but in batches).
             - If *Split particles to multiple sets?* is _No_:
                 Only one output is returned and it is growing up in batches of
                 a certain number of images (completely in streaming).
@@ -95,7 +95,7 @@ class XmippProtTriggerData(EMProtocol):
         # steps
         idSteps = self._insertFunctionStep('fillingOutputStep',
                                            prerequisites=[])
-        self._insertFunctionStep(self._getFirstJoinStep(),
+        self._insertFunctionStep(self._getFirstJoinStepName(),
                                  prerequisites=[idSteps], wait=True)
 
     def _stepsCheck(self):
@@ -145,7 +145,8 @@ class XmippProtTriggerData(EMProtocol):
         stepId = self._insertFunctionStep('fillingOutputStep',
                                           prerequisites=[])
         if outputStep is not None:
-            outputStep.addPrerequisites([stepId])
+            deps = [stepId]
+            outputStep.addPrerequisites(*deps)
         self.updateSteps()
 
     def _checkNewOutput(self):
@@ -163,7 +164,8 @@ class XmippProtTriggerData(EMProtocol):
             stepId = self._insertFunctionStep('fillingOutputStep',
                                               prerequisites=[])  # To do the last filling
             if outputStep:
-                outputStep.addPrerequisites([stepId])
+                deps = [stepId]
+                outputStep.addPrerequisites(*deps)
         # else:
         #     delayId = self._insertFunctionStep('delayStep', prerequisites=[])
         #     deps.append(delayId)
