@@ -47,7 +47,7 @@ from pyworkflow.em import ImageHandler
 
 from .plotter import XmippPlotter
 from xmipp3.protocols.protocol_resolution_monotomo import \
-        XmippProtMonoTomo, OUTPUT_RESOLUTION_FILE, FN_METADATA_HISTOGRAM#, \
+        XmippProtMonoTomo, OUTPUT_RESOLUTION_FILE, FN_METADATA_HISTOGRAM, FN_FILTERED_MAP#, \
 #         OUTPUT_RESOLUTION_FILE_CHIMERA, CHIMERA_RESOLUTION_VOL, FN_FILTERED_MAP
 
 
@@ -108,8 +108,8 @@ class XmippMonoTomoViewer(LocalResolutionViewer):
         group.addParam('doShowVolumeColorSlices', LabelParam,
               label="Show colored resolution slices")
         
-#         group.addParam('doShowVolumeColorFiltered', LabelParam,
-#               label="Show colored filtered resolution slices")
+        group.addParam('doShowVolumeColorFiltered', LabelParam,
+              label="Show colored filtered resolution slices")
         
         group.addParam('doShowOneColorslice', LabelParam, 
                        expertLevel=LEVEL_ADVANCED, 
@@ -126,7 +126,7 @@ class XmippMonoTomoViewer(LocalResolutionViewer):
         return {'doShowOriginalVolumeSlices': self._showOriginalVolumeSlices,
                 'doShowVolumeSlices': self._showVolumeSlices,
                 'doShowVolumeColorSlices': self._showVolumeColorSlicesResolution,
-#                 'doShowVolumeColorFiltered': self._showVolumeColorSlicesResolutionFiltered,
+                'doShowVolumeColorFiltered': self._showVolumeColorSlicesResolutionFiltered,
                 'doShowOneColorslice': self._showOneColorslice,
                 'doShowResHistogram': self._plotHistogram,
                 'doShowChimera': self._showChimera,
@@ -151,13 +151,36 @@ class XmippMonoTomoViewer(LocalResolutionViewer):
 
     def _showVolumeColorSlicesResolution(self, param=None):
         self._showVolumeColorSlices(OUTPUT_RESOLUTION_FILE)
-        
-#     def _showVolumeColorSlicesResolutionFiltered(self, param=None):
-#         self._showVolumeColorSlices(FN_FILTERED_MAP)
-    
+
+    def _showVolumeColorSlicesResolutionFiltered(self, param=None):
+        self._showVolumeColorSlicesTwoMaps(OUTPUT_RESOLUTION_FILE, FN_FILTERED_MAP)
+
     def _showVolumeColorSlices(self, mapFile):
         imageFile = self.protocol._getFileName(mapFile)
         imgData, min_Res, max_Res = self.getImgData(imageFile)
+
+        xplotter = XmippPlotter(x=2, y=2, mainTitle="Local Resolution Slices "
+                                                     "along %s-axis."
+                                                     %self._getAxis())
+
+        #The slices to be shown are close to the center. Volume size is divided in 
+        # 9 segments, the fouth central ones are selected i.e. 3,4,5,6
+        for i in xrange(3,7): 
+            sliceNumber = self.getSlice(i, imgData)
+            a = xplotter.createSubPlot("Slice %s" % (sliceNumber+1), '', '')
+            matrix = self.getSliceImage(imgData, sliceNumber, self._getAxis())
+            plot = xplotter.plotMatrix(a, matrix, min_Res, max_Res,
+                                       cmap=self.getColorMap(),
+                                       interpolation="nearest")
+        xplotter.getColorBar(plot)
+
+        return [plt.show(xplotter)]
+
+    def _showVolumeColorSlicesTwoMaps(self, mapFile1, mapFile2):
+        imageFile = self.protocol._getFileName(mapFile1)
+        imgData, min_Res, max_Res = self.getImgData(imageFile)
+	imageFile = self.protocol._getFileName(mapFile2)
+        imgData, min__, max__ = self.getImgData(imageFile)
 
         xplotter = XmippPlotter(x=2, y=2, mainTitle="Local Resolution Slices "
                                                      "along %s-axis."

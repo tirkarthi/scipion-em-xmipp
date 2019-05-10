@@ -366,8 +366,8 @@ class XmippProtMonoRes(ProtAnalysis3D):
         params += ' -o %s' % self._getFileName(OUTPUT_RESOLUTION_FILE)
         params += ' --volumeRadius %f' % xdim
         params += ' --exact'
-        params += ' --chimera_volume %s' % self._getFileName(
-                                                    OUTPUT_RESOLUTION_FILE_CHIMERA)
+	params += ' --chimera_volume %s' % self._getFileName(OUTPUT_RESOLUTION_FILE_CHIMERA)
+
         params += ' --sym %s' % 'c1'#self.symmetry.get()
         params += ' --significance %f' % self.significance.get()
         params += ' --md_outputdata %s' % self._getFileName(METADATA_MASK_FILE)  
@@ -382,14 +382,19 @@ class XmippProtMonoRes(ProtAnalysis3D):
 
     def createHistrogram(self):
 
-        M = float(self.max_res_init)
+	if self.stepSize.hasValue():
+            freq_step = self.stepSize.get()
+        else:
+            freq_step = 0.25
+            
+        M = float(self.max_res_init) + 1.0
         m = float(self.min_res_init)
-        range_res = round((M - m)*4.0)
+        range_res = round((M - m)/freq_step)
 
         params = ' -i %s' % self._getFileName(OUTPUT_RESOLUTION_FILE)
         params += ' --mask binary_file %s' % self._getFileName(OUTPUT_MASK_FILE)
         params += ' --steps %f' % (range_res)
-        params += ' --range %f %f' % (self.min_res_init, self.max_res_init)
+        params += ' --range %f %f' % (m, M)
         params += ' -o %s' % self._getFileName(FN_METADATA_HISTOGRAM)
 
         self.runJob('xmipp_image_histogram', params)
