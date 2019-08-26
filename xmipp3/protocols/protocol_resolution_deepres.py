@@ -182,6 +182,7 @@ class XmippProtDeepRes(ProtAnalysis3D):
             paramsResizeMask = ' -i %s' % self.maskFn
             paramsResizeMask += ' -o %s' % self._getFileName(RESIZE_MASK)        
             paramsResizeMask += ' --factor %s' % samplingFactor
+            paramsResizeMask += ' --interp linear'            
             self.runJob('xmipp_image_resize', paramsResizeMask ) 
             #Original volume with sampling=1.0
             paramsResizeVol = ' -i %s' % self._getFileName(OPERATE_VOL)
@@ -195,7 +196,8 @@ class XmippProtDeepRes(ProtAnalysis3D):
             paramsFilterMask += ' --fourier low_pass %s' % fourierValue            
             paramsResizeMask = ' -i %s' % self._getFileName(RESIZE_MASK)  
             paramsResizeMask += ' -o %s' % self._getFileName(RESIZE_MASK)           
-            paramsResizeMask += ' --factor %s' % samplingFactor            
+            paramsResizeMask += ' --factor %s' % samplingFactor    
+            paramsResizeMask += ' --interp linear'                   
             self.runJob('xmipp_transform_filter', paramsFilterMask )
             self.runJob('xmipp_image_resize', paramsResizeMask )   
             #Original volume with sampling=1.0
