@@ -38,10 +38,12 @@ from pyworkflow.protocol.constants import LEVEL_ADVANCED, STEPS_PARALLEL
 from pyworkflow.protocol.params import (PointerParam, IntParam, BooleanParam,
                                         Positive, FloatParam, EnumParam)
 from pyworkflow.utils.path import cleanPath
+from pyworkflow.em.metadata.utils import iterRows
 
 from xmipp3.base import XmippMdRow
 from xmipp3.convert import coordinateToRow
-from xmipp3.convert import readSetOfMovieParticles, xmippToLocation
+from xmipp3.convert import readSetOfMovieParticles, xmippToLocation, \
+    writeSetOfParticles
 
 
 class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
@@ -49,31 +51,44 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
     """
     _label = 'extract movie particles'
 
+    INPUT_COOR = 0
+    INPUT_PART = 1
+
     def __init__(self, **kwargs):
         ProtExtractMovieParticles.__init__(self, **kwargs)
         self.stepsExecutionMode = STEPS_PARALLEL
-    
+
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
         self.movieFolder = self._getTmpPath('movie_%(movieId)06d/')
         self.frameRoot = self.movieFolder + 'frame_%(frame)02d'
         myDict = {
-                  'frameImages': self.frameRoot + '_images',
-                  'frameMic': self.frameRoot + '.mrc',
-                  'frameMdFile': self.frameRoot + '_images.xmd',
-                  'frameCoords': self.frameRoot + '_coordinates.xmd',
-                  'frameStk': self.frameRoot + '_images.stk'
-                 }
+            'frameImages': self.frameRoot + '_images',
+            'frameMic': self.frameRoot + '.mrc',
+            'frameMdFile': self.frameRoot + '_images.xmd',
+            'frameCoords': self.frameRoot + '_coordinates.xmd',
+            'frameStk': self.frameRoot + '_images.stk'
+        }
 
         self._updateFilenamesDict(myDict)
 
-    #--------------------------- DEFINE param functions ------------------------
+    # --------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         ProtProcessMovies._defineParams(self, form)
         form.addParam('inputCoordinates', PointerParam,
                       pointerClass='SetOfCoordinates',
                       important=True,
                       label='Input coordinates')
+        form.addParam('saveAlignment', BooleanParam,
+                      label="Save particle alignment params?", default=True,
+                      help='Select if you want to save the alignment paramaters for the particles, in that case you need to provide '
+                           'the input particle set with which the coordinates were calculated.')
+        form.addParam('inputParticles', PointerParam,
+                      pointerClass='SetOfParticles',
+                      pointerCondition='hasAlignmentProj',
+                      condition='saveAlignment',
+                      label='Input aligned particles',
+                      help='Input particles set to save the alignment parameters.')
         form.addParam('boxSize', IntParam, default=0,
                       label='Particle box size (px)', validators=[Positive],
                       help='In pixels. The box size is the size of the boxed '
@@ -93,9 +108,9 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
                                  'previous alignment of the movies, you only can use '
                                  'a frame range equal or less as used to alignment.')
         line.addParam('frame0', IntParam, label='First')
-        line.addParam('frameN',  IntParam, label='Last')
+        line.addParam('frameN', IntParam, label='Last')
         # TODO: implement this and extraction from movies, not frames
-        #form.addParam('avgFrames', IntParam, default=1,
+        # form.addParam('avgFrames', IntParam, default=1,
         #              label='Average every so many frames', validators=[Positive],
         #              help='Average over this number of individual movie frames. '
         #                   'For Relion movie refinement it is recommended to '
@@ -115,7 +130,7 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
         form.addSection(label='Preprocess')
         form.addParam('doRemoveDust', BooleanParam, default=True,
                       important=True,
-                      label='Dust removal (Recommended)', 
+                      label='Dust removal (Recommended)',
                       help='Sets pixels with unusually large values to random '
                            'values from a Gaussian with zero-mean and '
                            'unity-standard deviation.')
@@ -129,11 +144,11 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
                            'itself may be affected so that a higher value may '
                            'be preferable.')
         form.addParam('doInvert', BooleanParam, default=None,
-                      label='Invert contrast', 
+                      label='Invert contrast',
                       help='Invert the contrast if your particles are black '
                            'over a white background.')
         form.addParam('doNormalize', BooleanParam, default=True,
-                      label='Normalize (Recommended)', 
+                      label='Normalize (Recommended)',
                       help='It subtract a ramp in the gray values and '
                            'normalizes so that in the  background there is 0 '
                            'mean and standard deviation 1.')
@@ -141,7 +156,7 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
                       choices=['OldXmipp', 'NewXmipp', 'Ramp'], default=2,
                       condition='doNormalize', expertLevel=LEVEL_ADVANCED,
                       display=EnumParam.DISPLAY_COMBO,
-                      label='Normalization type', 
+                      label='Normalization type',
                       help='OldXmipp (mean(Image)=0, stddev(Image)=1). \n'
                            'NewXmipp (mean(background)=0, '
                            'stddev(background)=1)\n'
@@ -165,7 +180,7 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
         # Build the list of all processMovieStep ids by
         # inserting each of the steps for each movie
         self.insertedDict = {}
-        
+
         # Conversion step is part of processMovieStep.
         movieSteps = self._insertNewMoviesSteps(self.insertedDict,
                                                 self.inputMovies.get())
@@ -185,23 +200,30 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
                                                movieDict,
                                                movie.hasAlignment(),
                                                prerequisites=[])
-        
-        return movieStepId 
 
-    # -------------------------- STEPS functions -------------------------------
+        return movieStepId
+
+        # -------------------------- STEPS functions -------------------------------
+
     def _processMovie(self, movie):
         movId = movie.getObjId()
         x, y, n = movie.getDim()
         iniFrame, lastFrame, _ = movie.getFramesRange()
         frame0, frameN = self._getRange(movie)
         boxSize = self.boxSize.get()
-        
+
+        # if self.saveAlignment:
+        #     imgsFn = self._getExtraPath('input_particles.xmd')
+        #     imgSet = self.inputParticles.get()
+        #     writeSetOfParticles(imgSet, imgsFn)
+        #     mdInputParts = md.MetaData(imgsFn)
+
         if movie.hasAlignment() and self.applyAlignment:
             shiftX, shiftY = movie.getAlignment().getShifts()  # lists.
         else:
-            shiftX = [0] * (lastFrame-iniFrame+1)
+            shiftX = [0] * (lastFrame - iniFrame + 1)
             shiftY = shiftX
-        
+
         stkIndex = 0
         movieStk = self._getMovieName(movie, '.stk')
         movieMdFile = self._getMovieName(movie, '.xmd')
@@ -209,27 +231,28 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
         frameMd = md.MetaData()
         frameMdImages = md.MetaData()
         frameRow = md.Row()
-        
+
         if self._hasCoordinates(movie):
             imgh = ImageHandler()
 
-            for frame in range(frame0, frameN+1):
-                indx = frame-iniFrame
-                frameName = self._getFnRelated('frameMic',movId, frame)
-                frameMdFile = self._getFnRelated('frameMdFile',movId, frame)
-                coordinatesName = self._getFnRelated('frameCoords',movId, frame)
-                frameImages = self._getFnRelated('frameImages',movId, frame)
+            for frame in range(frame0, frameN + 1):
+                indx = frame - iniFrame
+                frameName = self._getFnRelated('frameMic', movId, frame)
+                frameMdFile = self._getFnRelated('frameMdFile', movId, frame)
+                coordinatesName = self._getFnRelated('frameCoords', movId,
+                                                     frame)
+                frameImages = self._getFnRelated('frameImages', movId, frame)
                 frameStk = self._getFnRelated('frameStk', movId, frame)
-                
+
                 self._writeXmippPosFile(movie, coordinatesName,
                                         shiftX[indx], shiftY[indx])
-                
+
                 self.info("Writing frame: %s" % frameName)
                 # TODO: there is no need to write the frame and then operate
                 # the input of the first operation should be the movie
                 movieName = imgh.fixXmippVolumeFileName(movie)
                 imgh.convert((frame, movieName), frameName)
-                
+
                 if self.doRemoveDust:
                     self.info("Removing Dust")
                     self._runNoDust(frameName)
@@ -237,30 +260,30 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
                 self.info("Extracting particles")
                 args = '-i %(frameName)s --pos %(coordinatesName)s ' \
                        '-o %(frameImages)s --Xdim %(boxSize)d' % locals()
-                
+
                 if self.doInvert:
                     args += " --invert"
 
                 if self.doBorders:
                     args += " --fillBorders"
-                
+
                 args += " --downsampling %f " % self.getBoxScale()
                 self.runJob('xmipp_micrograph_scissor', args)
                 cleanPath(frameName)
-                
+
                 self.info("Combining particles into one stack.")
-                
+
                 frameMdImages.read(frameMdFile)
                 frameMd.read('particles@%s' % coordinatesName)
                 frameMd.merge(frameMdImages)
-                 
+
                 for objId in frameMd:
                     stkIndex += 1
                     frameRow.readFromMd(frameMd, objId)
                     location = xmippToLocation(frameRow.getValue(md.MDL_IMAGE))
                     newLocation = (stkIndex, movieStk)
                     imgh.convert(location, newLocation)
-                    
+
                     # Fix the name to be accessible from the Project directory
                     # so we know that the movie stack file will be moved
                     # to final particles folder
@@ -271,15 +294,26 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
                     frameRow.setValue(md.MDL_FRAME_ID, long(frame))
                     frameRow.setValue(md.MDL_PARTICLE_ID,
                                       frameRow.getValue(md.MDL_ITEM_ID))
+                    # if self.saveAlignment:
+                    #     rowsInputParts = iterRows(mdInputParts)
+                    #     for rowIn in rowsInputParts:
+                    #         if rowIn.getValue(md.MDL_PARTICLE_ID) == frameRow.getValue(md.MDL_ITEM_ID):
+                    #             frameRow.setValue(md.MDL_SHIFT_X, rowIn.getValue(md.MDL_SHIFT_X))
+                    #             frameRow.setValue(md.MDL_SHIFT_Y, rowIn.getValue(md.MDL_SHIFT_Y))
+                    #             frameRow.setValue(md.MDL_ANGLE_ROT, rowIn.getValue(md.MDL_ANGLE_ROT))
+                    #             frameRow.setValue(md.MDL_ANGLE_TILT, rowIn.getValue(md.MDL_ANGLE_TILT))
+                    #             frameRow.setValue(md.MDL_ANGLE_PSI, rowIn.getValue(md.MDL_ANGLE_PSI))
+                    #             break
+
                     frameRow.writeToMd(movieMd, movieMd.addObject())
                 movieMd.addItemId()
                 movieMd.write(movieMdFile)
                 cleanPath(frameStk)
-            
+
             if self.doNormalize:
                 numberOfFrames = frameN - frame0 + 1
                 self._runNormalize(movieStk, numberOfFrames)
-    
+
     def _runNoDust(self, frameName):
         args = (" -i %s -o %s --bad_pixels outliers %f"
                 % (frameName, frameName, self.thresholdDust.get()))
@@ -291,11 +325,11 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
         args = "-i %(stack)s "
         normType = self.normType.get()
         bgRadius = self.backRadius.get()
-        
-        size, _, _ , _ = ImageHandler().getDimensions(stack)
+
+        size, _, _, _ = ImageHandler().getDimensions(stack)
         if bgRadius <= 0:
-            bgRadius = int(size/2)
-        
+            bgRadius = int(size / 2)
+
         if normType == "OldXmipp":
             args += "--method OldXmipp"
         elif normType == "NewXmipp":
@@ -303,7 +337,7 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
         else:
             args += "--method Ramp --background circle %(bgRadius)d"
         self.runJob(program, args % locals())
-        
+
         # The background's stddev of the movie
         # particles must be equal to sqrt(NoOfFrames)
         # for the background's stddev of the
@@ -311,19 +345,19 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
         val = math.sqrt(frames)
         opArgs = "-i %s --mult %f" % (stack, val)
         self.runJob("xmipp_image_operate", opArgs)
-    
+
     def createOutputStep(self):
         inputMovies = self.inputMovies.get()
-        particleSet = self._createSetOfMovieParticles()        
+        particleSet = self._createSetOfMovieParticles()
         particleSet.copyInfo(inputMovies)
-          
+
         # Create a folder to store the resulting micrographs
-         
-#         particleFolder = self._getPath('particles')
-#         makePath(particleFolder)
+
+        #         particleFolder = self._getPath('particles')
+        #         makePath(particleFolder)
         mData = md.MetaData()
         mdAll = md.MetaData()
-          
+
         self._micNameDict = {}
 
         for movie in inputMovies:
@@ -331,31 +365,82 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
             movieName = self._getMovieName(movie)
             movieStk = movieName.replace('.mrc', '.stk')
             movieMdFile = movieName.replace('.mrc', '.xmd')
-            
+
             # Store particle stack and metadata files in final particles folder
             if os.path.exists(movieStk):
                 mData.read(movieMdFile)
                 mdAll.unionAll(mData)
-              
+
         particleMd = self._getPath('movie_particles.xmd')
         mdAll.addItemId()
         mdAll.write(particleMd)
-        readSetOfMovieParticles(particleMd, particleSet, removeDisabled=False,
-                                postprocessImageRow=self._postprocessImageRow)
-        
-        self._defineOutputs(outputParticles=particleSet)
-        self._defineSourceRelation(self.inputMovies, particleSet)
-    
-    # --------------------------- INFO functions ------------------------------
+
+        if not self.saveAlignment:
+            readSetOfMovieParticles(particleMd, particleSet,
+                                    removeDisabled=False,
+                                    postprocessImageRow=self._postprocessImageRow)
+
+            self._defineOutputs(outputParticles=particleSet)
+            self._defineSourceRelation(self.inputMovies, particleSet)
+
+        if self.saveAlignment:
+            frame0, frameN = self._getRange(movie)
+            imgsFn = self._getExtraPath('input_particles.xmd')
+            inputPart = self.inputParticles.get()
+            writeSetOfParticles(inputPart, imgsFn)
+
+            particleSetOut = self._createSetOfMovieParticles()
+            particleSetOut.copyInfo(inputPart)
+            particleSetOut.setAlignmentProj()
+
+            mdInputParts = md.MetaData(imgsFn)
+            mdOutputParts = md.MetaData(particleMd)
+            mdFinal = md.MetaData()
+            rowsInputParts = iterRows(mdInputParts)
+            for rowIn in rowsInputParts:
+                idIn = rowIn.getValue(md.MDL_ITEM_ID)
+                shiftX = rowIn.getValue(md.MDL_SHIFT_X)
+                shiftY = rowIn.getValue(md.MDL_SHIFT_Y)
+                rot = rowIn.getValue(md.MDL_ANGLE_ROT)
+                tilt = rowIn.getValue(md.MDL_ANGLE_TILT)
+                psi = rowIn.getValue(md.MDL_ANGLE_PSI)
+                flip = rowIn.getValue(md.MDL_FLIP)
+                count = 0
+                rowsOutputParts = iterRows(mdOutputParts)
+                for rowOut in rowsOutputParts:
+                    if rowOut.getValue(md.MDL_PARTICLE_ID) == idIn:
+                        rowOut.setValue(md.MDL_SHIFT_X, shiftX)
+                        rowOut.setValue(md.MDL_SHIFT_Y, shiftY)
+                        rowOut.setValue(md.MDL_ANGLE_ROT, rot)
+                        rowOut.setValue(md.MDL_ANGLE_TILT, tilt)
+                        rowOut.setValue(md.MDL_ANGLE_PSI, psi)
+                        rowOut.setValue(md.MDL_FLIP, flip)
+                        rowOut.addToMd(mdFinal)
+                        count += 1
+                        if count == (frameN - frame0 + 1):
+                            break
+            particleMd2 = self._getPath('movie_particles2.xmd')
+            mdFinal.write(particleMd2)
+            from os import remove
+            remove(particleMd)
+
+            readSetOfMovieParticles(particleMd2, particleSetOut,
+                                    removeDisabled=False,
+                                    postprocessImageRow=self._postprocessImageRow)
+            self._defineOutputs(outputParticles=particleSetOut)
+            self._defineSourceRelation(self.inputMovies, particleSetOut)
+
+        # --------------------------- INFO functions ------------------------------
+
     def _validate(self):
         errors = []
-        
+
         if self.doNormalize and self.backRadius > self.boxSize.get() / 2:
             errors.append("Background radius for normalization should "
                           "be equal or less than the box size.")
-        
+
         inputSet = self.inputMovies.get()
-        
+
         # Although getFirstItem is not recommended in general, here it is
         # used only once, for validation purposes, so performance
         # problems should not appear.
@@ -373,18 +458,18 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
             lastFrame = frames
         else:
             frames = lastFrame - firstFrame + 1
-    
+
         if frames is not None:
             # Avoid validation when the range is not defined
             if not (hasattr(self, 'frame0') or hasattr(self, 'frameN')):
                 return
-        
+
             f0, fN = self._getRange(movie)
             if fN < firstFrame or fN > lastFrame:
                 errors.append("Check the selected last frame. "
                               "Last frame (%d) should be in range: %s "
                               % (fN, (firstFrame, lastFrame)))
-            
+
             if f0 < firstFrame or f0 > lastFrame:
                 errors.append("Check the selected first frame. "
                               "First frame (%d) should be in range: %s "
@@ -393,6 +478,11 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
                 errors.append("Check the selected frames range. Last frame "
                               "(%d) should be greater than first frame (%d)"
                               % (fN, f0))
+
+        if self.saveAlignment and (self.inputParticles.get() == None):
+            errors.append("If you want to save the alignment an input particle "
+                          "set must be provided")
+
         return errors
 
     def _methods(self):
@@ -402,24 +492,24 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
     def _summary(self):
         summary = []
         return summary
-    
+
     # -------------------------- UTILS functions ------------------------------
 
     def _getFnRelated(self, keyFile, movId, frameIndex):
         return self._getFileName(keyFile, movieId=movId, frame=frameIndex)
-    
+
     def _writeXmippPosFile(self, movie, coordinatesName, shiftX, shiftY):
         """ Create Xmipp coordinate files to be extracted
         from the frames of the movie.
         """
         coordSet = self.getCoords()
-        
+
         mData = md.MetaData()
         coordRow = XmippMdRow()
 
         for coord in coordSet.iterCoordinates(movie.getObjId()):
-            coord.shiftX( int(round(float(shiftX))))
-            coord.shiftY( int(round(float(shiftY))))
+            coord.shiftX(int(round(float(shiftX))))
+            coord.shiftY(int(round(float(shiftY))))
             coordinateToRow(coord, coordRow)
             coordRow.writeToMd(mData, mData.addObject())
 
@@ -435,14 +525,14 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
         coordinates = self.getCoords()
         micSet = coordinates.getMicrographs()
         micrograph = micSet[movieId]
-        
+
         if micrograph is not None:
             return True
         else:
             self.warning("Micrograph with id %d was not found in "
                          "SetOfCoordinates!!!" % movieId)
             return False
-    
+
     def _postprocessImageRow(self, img, imgRow):
         img.setFrameId(imgRow.getValue(md.MDL_FRAME_ID))
         img.setParticleId(imgRow.getValue(md.MDL_PARTICLE_ID))
@@ -492,10 +582,10 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
         samplingPicking = self.getCoordSampling()
         samplingExtract = self.inputMovies.get().getSamplingRate()
         return samplingPicking / samplingExtract
-        
+
     def getCoordSampling(self):
         return self.getCoords().getMicrographs().getSamplingRate()
-    
+
     def getCoords(self):
         # to support multiple access to db
         coordSet = self.inputCoordinates.get()
@@ -507,13 +597,13 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
     def _stepsCheck(self):
         # Streaming is not implemented yet for this protocol.
         pass
-    
+
     def _hasCoordinates(self, movie):
         coordSet = self.getCoords()
 
         len = 0
         for coord in coordSet.iterCoordinates(movie.getObjId()):
-            len  += 1
+            len += 1
             break
         if len > 0:
             return True
