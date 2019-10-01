@@ -205,7 +205,8 @@ class XmippProtSubtractProjection(ProtOperateParticles):
             # Subtract from experimental and write result
             projection.resetOrigin()
             if self.normalize:
-                expProj = expProj.adjustAndSubtract(projection)
+                expProj = expProj.adjustAndSubtractOptimize(projection)
+                # expProj = expProj.adjustAndSubtract(projection)
             else:
                 expProj.inplaceSubtract(projection)
 

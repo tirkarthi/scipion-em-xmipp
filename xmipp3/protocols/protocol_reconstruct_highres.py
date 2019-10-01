@@ -1483,8 +1483,6 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
         if not self.doContinue and self.inputParticles.hasValue() and \
            self.alignmentMethod.get()==self.LOCAL_ALIGNMENT and not self.inputParticles.get().hasAlignmentProj():
             errors.append("If the first iteration is local, then the input particles must have an alignment")
-        if not self.inputParticles.get().isPhaseFlipped():
-            errors.append("The input particles must be phase flipped")
         return errors    
     
     def _warnings(self):
@@ -1492,6 +1490,8 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
         if not self.doContinue and self.inputParticles.hasValue() and not self.inputParticles.get().isPhaseFlipped():
             warnings.append("Highres is designed to work on phase flipped particles. The input particles are not phase flipped. "
                             "Unless you work with phantoms, you need to extract particles with phase flip.")
+        if not self.inputParticles.get().isPhaseFlipped():
+            warnings.append("The input particles must be phase flipped")        
         return warnings    
 
     def _summary(self):
