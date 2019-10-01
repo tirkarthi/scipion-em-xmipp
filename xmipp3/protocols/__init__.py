@@ -121,3 +121,4 @@ from .protocol_volume_deform_sph import XmippProtVolumeDeformSPH
 from .protocol_structure_map_sph import XmippProtStructureMapSPH
 from .protocol_align_volume_and_particles import XmippProtAlignVolumeParticles
 from .protocol_particle_polishing import XmippProtParticlePolishing
+from .protocol_extract_particles_movies_new import XmippProtExtractMovieParticlesNew

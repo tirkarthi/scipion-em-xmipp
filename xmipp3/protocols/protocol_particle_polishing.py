@@ -35,7 +35,7 @@ from pyworkflow.em.convert import ImageHandler
 import pyworkflow.em.metadata as md
 from xmipp3.base import XmippMdRow
 
-import xmipp
+import xmippLib
 from xmipp3.convert import setXmippAttributes, xmippToLocation, coordinateToRow, \
     readSetOfMovieParticles
 
