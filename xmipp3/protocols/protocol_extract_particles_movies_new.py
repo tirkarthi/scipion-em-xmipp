@@ -58,7 +58,7 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
 
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
-        self.movieFolder = self._getExtraPath('movie_%(movieId)06d/')
+        self.movieFolder = self._getTmpPath('movie_%(movieId)06d/')
         self.frameRoot = self.movieFolder + 'frame_%(frame)02d'
         myDict = {
             'frameImages': self.frameRoot + '_images',
