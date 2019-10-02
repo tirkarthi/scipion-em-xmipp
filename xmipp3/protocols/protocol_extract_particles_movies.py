@@ -363,53 +363,6 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
         self._defineOutputs(outputParticles=particleSet)
         self._defineSourceRelation(self.inputMovies, particleSet)
 
-        # if self.saveAlignment:
-        #     frame0, frameN = self._getRange(movie)
-        #     imgsFn = self._getExtraPath('input_particles.xmd')
-        #     inputPart = self.inputParticles.get()
-        #     writeSetOfParticles(inputPart, imgsFn)
-        #
-        #     particleSetOut = self._createSetOfMovieParticles()
-        #     particleSetOut.copyInfo(inputPart)
-        #     particleSetOut.setAlignmentProj()
-        #
-        #     mdInputParts = md.MetaData(imgsFn)
-        #     mdOutputParts = md.MetaData(particleMd)
-        #     mdFinal = md.MetaData()
-        #     rowsInputParts = iterRows(mdInputParts)
-        #     for rowIn in rowsInputParts:
-        #         idIn = rowIn.getValue(md.MDL_ITEM_ID)
-        #         shiftX = rowIn.getValue(md.MDL_SHIFT_X)
-        #         shiftY = rowIn.getValue(md.MDL_SHIFT_Y)
-        #         rot = rowIn.getValue(md.MDL_ANGLE_ROT)
-        #         tilt = rowIn.getValue(md.MDL_ANGLE_TILT)
-        #         psi = rowIn.getValue(md.MDL_ANGLE_PSI)
-        #         flip = rowIn.getValue(md.MDL_FLIP)
-        #         count = 0
-        #         rowsOutputParts = iterRows(mdOutputParts)
-        #         for rowOut in rowsOutputParts:
-        #             if rowOut.getValue(md.MDL_PARTICLE_ID) == idIn:
-        #                 rowOut.setValue(md.MDL_SHIFT_X, shiftX)
-        #                 rowOut.setValue(md.MDL_SHIFT_Y, shiftY)
-        #                 rowOut.setValue(md.MDL_ANGLE_ROT, rot)
-        #                 rowOut.setValue(md.MDL_ANGLE_TILT, tilt)
-        #                 rowOut.setValue(md.MDL_ANGLE_PSI, psi)
-        #                 rowOut.setValue(md.MDL_FLIP, flip)
-        #                 rowOut.addToMd(mdFinal)
-        #                 count += 1
-        #                 if count == (frameN - frame0 + 1):
-        #                     break
-        #     particleMd2 = self._getPath('movie_particles2.xmd')
-        #     mdFinal.write(particleMd2)
-        #     from os import remove
-        #     remove(particleMd)
-        #
-        #     readSetOfMovieParticles(particleMd2, particleSetOut,
-        #                             removeDisabled=False,
-        #                             postprocessImageRow=self._postprocessImageRow)
-        #     self._defineOutputs(outputParticles=particleSetOut)
-        #     self._defineSourceRelation(self.inputMovies, particleSetOut)
-
         # --------------------------- INFO functions ------------------------------
 
     def _validate(self):
