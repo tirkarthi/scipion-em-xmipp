@@ -47,13 +47,13 @@ from xmipp3.convert import readSetOfMovieParticles, xmippToLocation, \
     writeSetOfParticles
 
 
-class XmippProtExtractMovieParticlesNew(ProtExtractMovieParticles):
+class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
     """ Extract a set of Particles from each frame of a set of Movies.
     """
     _label = 'extract movie particles new'
 
     def __init__(self, **kwargs):
-        ProtExtractMovieParticles.__init__(self, **kwargs)
+        ProtProcessMovies.__init__(self, **kwargs)
         self.stepsExecutionMode = STEPS_PARALLEL
 
     def _createFilenameTemplates(self):
@@ -75,7 +75,6 @@ class XmippProtExtractMovieParticlesNew(ProtExtractMovieParticles):
         ProtProcessMovies._defineParams(self, form)
         form.addParam('inputParticles', PointerParam,
                       pointerClass='SetOfParticles',
-                      pointerCondition='hasAlignmentProj',
                       important=True,
                       label='Input aligned particles')
         form.addParam('inputMicrographs', PointerParam,
@@ -135,21 +134,7 @@ class XmippProtExtractMovieParticlesNew(ProtExtractMovieParticles):
         # Do not use the extract particles finalStep method: wait = true.
         # finalSteps = self._insertFinalSteps(movieSteps)
         self._insertFunctionStep('createOutputStep',
-                                 prerequisites=movieSteps, wait=False)
-
-    def _insertMovieStep(self, movie):
-        # Redefine this function to add the shifts and factor to the
-        # processMovieStep function and run properly in parallel with threads
-
-        # retrieve shifts here so there is no conflict
-        # if the object is accessed inside at the same time by multiple threads
-        movieDict = movie.getObjDict(includeBasic=True)
-        movieStepId = self._insertFunctionStep('processMovieStep',
-                                               movieDict,
-                                               movie.hasAlignment(),
-                                               prerequisites=[])
-
-        return movieStepId
+                                 prerequisites=movieSteps)
 
         # -------------------------- STEPS functions -------------------------------
 
@@ -188,16 +173,20 @@ class XmippProtExtractMovieParticlesNew(ProtExtractMovieParticles):
             else:
                 newCoord.copyObjId(particle)
                 x, y = coord.getPosition()
-                shifts = self.getShifts(particle.getTransform(), alignType)
-                xCoor, yCoor = x - int(shifts[0]), y - int(shifts[1])
+                if inputParticles.hasAlignmentProj():
+                    shifts = self.getShifts(particle.getTransform(), alignType)
+                    xCoor, yCoor = x - int(shifts[0]), y - int(shifts[1])
+                else:
+                    xCoor, yCoor = x, y
                 newCoord.setPosition(xCoor * scale, yCoor * scale)
-
                 newCoord.setMicrograph(mic)
                 self.inputCoords.append(newCoord)
 
         boxSize = inputParticles.getXDim() * scale
         self.inputCoords.setBoxSize(boxSize)
-        self._defineOutputs(outputCoordinates=self.inputCoords)
+        self.inputCoords.loadAllProperties()
+        self.inputCoords.close()
+        #self._defineOutputs(outputCoordinates=self.inputCoords)
 
     def _processMovie(self, movie):
         movId = movie.getObjId()
@@ -307,49 +296,57 @@ class XmippProtExtractMovieParticlesNew(ProtExtractMovieParticles):
         mdAll.addItemId()
         mdAll.write(particleMd)
 
-        frame0, frameN = self._getRange(movie)
-        imgsFn = self._getExtraPath('input_particles.xmd')
-        inputPart = self.inputParticles.get()
-        writeSetOfParticles(inputPart, imgsFn)
+        if not self.inputParticles.get().hasAlignmentProj():
+            readSetOfMovieParticles(particleMd, particleSet,
+                                    removeDisabled=False,
+                                    postprocessImageRow=self._postprocessImageRow)
+            self._defineOutputs(outputParticles=particleSet)
+            self._defineSourceRelation(self.inputMovies, particleSet)
 
-        particleSetOut = self._createSetOfMovieParticles()
-        particleSetOut.copyInfo(inputPart)
-        particleSetOut.setAlignmentProj()
+        else:
+            frame0, frameN = self._getRange(movie)
+            imgsFn = self._getExtraPath('input_particles.xmd')
+            inputPart = self.inputParticles.get()
+            writeSetOfParticles(inputPart, imgsFn)
 
-        mdInputParts = md.MetaData(imgsFn)
-        mdOutputParts = md.MetaData(particleMd)
-        mdFinal = md.MetaData()
-        rowsInputParts = iterRows(mdInputParts)
-        for rowIn in rowsInputParts:
-            idIn = rowIn.getValue(md.MDL_ITEM_ID)
-            shiftX = rowIn.getValue(md.MDL_SHIFT_X)
-            shiftY = rowIn.getValue(md.MDL_SHIFT_Y)
-            rot = rowIn.getValue(md.MDL_ANGLE_ROT)
-            tilt = rowIn.getValue(md.MDL_ANGLE_TILT)
-            psi = rowIn.getValue(md.MDL_ANGLE_PSI)
-            flip = rowIn.getValue(md.MDL_FLIP)
-            count = 0
-            rowsOutputParts = iterRows(mdOutputParts)
-            for rowOut in rowsOutputParts:
-                if rowOut.getValue(md.MDL_PARTICLE_ID) == idIn:
-                    rowOut.setValue(md.MDL_SHIFT_X, shiftX)
-                    rowOut.setValue(md.MDL_SHIFT_Y, shiftY)
-                    rowOut.setValue(md.MDL_ANGLE_ROT, rot)
-                    rowOut.setValue(md.MDL_ANGLE_TILT, tilt)
-                    rowOut.setValue(md.MDL_ANGLE_PSI, psi)
-                    rowOut.setValue(md.MDL_FLIP, flip)
-                    rowOut.addToMd(mdFinal)
-                    count += 1
-                    if count == (frameN - frame0 + 1):
-                        break
-        particleMd = self._getPath('movie_particles.xmd')
-        mdFinal.write(particleMd)
+            particleSetOut = self._createSetOfMovieParticles()
+            particleSetOut.copyInfo(inputPart)
+            particleSetOut.setAlignmentProj()
 
-        readSetOfMovieParticles(particleMd, particleSetOut,
-                                removeDisabled=False,
-                                postprocessImageRow=self._postprocessImageRow)
-        self._defineOutputs(outputParticles=particleSetOut)
-        self._defineSourceRelation(self.inputMovies, particleSetOut)
+            mdInputParts = md.MetaData(imgsFn)
+            mdOutputParts = md.MetaData(particleMd)
+            mdFinal = md.MetaData()
+            rowsInputParts = iterRows(mdInputParts)
+            for rowIn in rowsInputParts:
+                idIn = rowIn.getValue(md.MDL_ITEM_ID)
+                shiftX = rowIn.getValue(md.MDL_SHIFT_X)
+                shiftY = rowIn.getValue(md.MDL_SHIFT_Y)
+                rot = rowIn.getValue(md.MDL_ANGLE_ROT)
+                tilt = rowIn.getValue(md.MDL_ANGLE_TILT)
+                psi = rowIn.getValue(md.MDL_ANGLE_PSI)
+                flip = rowIn.getValue(md.MDL_FLIP)
+                count = 0
+                rowsOutputParts = iterRows(mdOutputParts)
+                for rowOut in rowsOutputParts:
+                    if rowOut.getValue(md.MDL_PARTICLE_ID) == idIn:
+                        rowOut.setValue(md.MDL_SHIFT_X, shiftX)
+                        rowOut.setValue(md.MDL_SHIFT_Y, shiftY)
+                        rowOut.setValue(md.MDL_ANGLE_ROT, rot)
+                        rowOut.setValue(md.MDL_ANGLE_TILT, tilt)
+                        rowOut.setValue(md.MDL_ANGLE_PSI, psi)
+                        rowOut.setValue(md.MDL_FLIP, flip)
+                        rowOut.addToMd(mdFinal)
+                        count += 1
+                        if count == (frameN - frame0 + 1):
+                            break
+            mdFinal.write(particleMd)
+
+            readSetOfMovieParticles(particleMd, particleSetOut,
+                                    removeDisabled=False,
+                                    postprocessImageRow=self._postprocessImageRow)
+            self._defineOutputs(outputParticles=particleSetOut)
+            self._defineSourceRelation(self.inputMovies, particleSetOut)
+
 
         # --------------------------- INFO functions ------------------------------
 
@@ -398,6 +395,15 @@ class XmippProtExtractMovieParticlesNew(ProtExtractMovieParticles):
 
         return errors
 
+    def _warnings(self):
+        warnings = []
+        if not self.inputParticles.get().hasAlignmentProj():
+            warnings.append("Running the extraction with particles without "
+                            "alignment implies not using the shifts in the "
+                            "transformation matrix to calculate the exact "
+                            "coordinates of every particle.")
+        return warnings
+
     def _methods(self):
         methods = []
         return methods
@@ -421,8 +427,8 @@ class XmippProtExtractMovieParticlesNew(ProtExtractMovieParticles):
         coordRow = XmippMdRow()
 
         for coord in coordSet.iterCoordinates(movie.getObjId()):
-            coord.shiftX(int(round(float(shiftX))))
-            coord.shiftY(int(round(float(shiftY))))
+            coord.shiftX(int(-1*round(float(shiftX))))
+            coord.shiftY(int(-1*round(float(shiftY))))
             coordinateToRow(coord, coordRow)
             coordRow.writeToMd(mData, mData.addObject())
 
