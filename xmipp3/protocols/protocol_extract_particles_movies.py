@@ -342,6 +342,7 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
 
         for movie in inputMovies:
             self._micNameDict[movie.getObjId()] = movie.getMicName()
+            print("MOVIE: ", movie.getMicName())
             movieName = self._getMovieName(movie)
             movieStk = movieName.replace('.mrc', '.stk')
             movieMdFile = movieName.replace('.mrc', '.xmd')

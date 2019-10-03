@@ -142,6 +142,8 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
         inputParticles = self.inputParticles.get()
         inputMics = self.inputMicrographs.get()
         self.inputCoords = self._createSetOfCoordinates(inputMics)
+        mdCoords = md.MetaData()
+        rowCoord = XmippMdRow()
         alignType = inputParticles.getAlignment()
 
         scale = inputParticles.getSamplingRate() / inputMics.getSamplingRate()
@@ -181,10 +183,13 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                 newCoord.setPosition(xCoor * scale, yCoor * scale)
                 newCoord.setMicrograph(mic)
                 self.inputCoords.append(newCoord)
+                coordinateToRow(newCoord, rowCoord)
+                rowCoord.writeToMd(mdCoords, mdCoords.addObject())
 
+        mdCoords.write(self._getExtraPath('input_coords.xmd'))
         boxSize = inputParticles.getXDim() * scale
-        self.inputCoords.setBoxSize(boxSize)
-        self._defineOutputs(outputCoordinates=self.inputCoords)
+        # self.inputCoords.setBoxSize(boxSize)
+        # self._defineOutputs(outputCoordinates=self.inputCoords)
 
     def _processMovie(self, movie):
         movId = movie.getObjId()
@@ -209,6 +214,7 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
 
         if self._hasCoordinates(movie):
             imgh = ImageHandler()
+            print('AQUI')
 
             for frame in range(frame0, frameN + 1):
                 indx = frame - iniFrame
@@ -264,6 +270,9 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                 movieMd.addItemId()
                 movieMd.write(movieMdFile)
                 cleanPath(frameStk)
+
+        else:
+            print('MAL')
 
     def createOutputStep(self):
         inputMovies = self.inputMovies.get()
@@ -419,20 +428,35 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
         """ Create Xmipp coordinate files to be extracted
         from the frames of the movie.
         """
-        coordSet = self.getCoords()
+        # coordSet = self.getCoords()
+        #
+        # mData = md.MetaData()
+        # coordRow = XmippMdRow()
+        #
+        # for coord in coordSet.iterCoordinates(movie.getObjId()):
+        #     coord.shiftX(int(-1*round(float(shiftX))))
+        #     coord.shiftY(int(-1*round(float(shiftY))))
+        #     coordinateToRow(coord, coordRow)
+        #     coordRow.writeToMd(mData, mData.addObject())
+        #
+        # self.info("Writing coordinates metadata: %s, with shifts: %s %s"
+        #           % (coordinatesName, shiftX, shiftY))
+        # mData.write('particles@' + coordinatesName)
 
         mData = md.MetaData()
-        coordRow = XmippMdRow()
-
-        for coord in coordSet.iterCoordinates(movie.getObjId()):
-            coord.shiftX(int(-1*round(float(shiftX))))
-            coord.shiftY(int(-1*round(float(shiftY))))
-            coordinateToRow(coord, coordRow)
-            coordRow.writeToMd(mData, mData.addObject())
-
+        mdCoords = md.MetaData(self._getExtraPath('input_coords.xmd'))
+        for row in iterRows(mdCoords):
+            if int(row.getValue(md.MDL_MICROGRAPH))==movie.getObjId():
+                newX = row.getValue(md.MDL_XCOOR) - int(round(float(shiftX)))
+                row.setValue(md.MDL_XCOOR, newX)
+                newY = row.getValue(md.MDL_YCOOR) - int(round(float(shiftY)))
+                row.setValue(md.MDL_YCOOR, newY)
+            row.writeToMd(mData, mData.addObject())
         self.info("Writing coordinates metadata: %s, with shifts: %s %s"
                   % (coordinatesName, shiftX, shiftY))
         mData.write('particles@' + coordinatesName)
+
+
 
     def _postprocessImageRow(self, img, imgRow):
         img.setFrameId(imgRow.getValue(md.MDL_FRAME_ID))
@@ -494,12 +518,23 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
 
 
     def _hasCoordinates(self, movie):
-        coordSet = self.getCoords()
+        # coordSet = self.getCoords()
+        #
+        # len = 0
+        # for coord in coordSet.iterCoordinates(movie.getObjId()):
+        #     len += 1
+        #     break
+        # if len > 0:
+        #     return True
+        # else:
+        #     return False
 
         len = 0
-        for coord in coordSet.iterCoordinates(movie.getObjId()):
-            len += 1
-            break
+        mdCoords = md.MetaData(self._getExtraPath('input_coords.xmd'))
+        for row in iterRows(mdCoords):
+            if int(row.getValue(md.MDL_MICROGRAPH))==movie.getObjId():
+                len += 1
+                break
         if len > 0:
             return True
         else:
