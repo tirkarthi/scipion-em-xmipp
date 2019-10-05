@@ -30,7 +30,6 @@ import os
 import numpy
 from pyworkflow.em.constants import ALIGN_2D, ALIGN_3D, ALIGN_PROJ, ALIGN_NONE
 import pyworkflow.em.metadata as md
-from pyworkflow.em import SetOfCoordinates
 
 from pyworkflow.em.convert import ImageHandler
 from pyworkflow.em.protocol import ProtExtractMovieParticles, ProtProcessMovies
@@ -39,12 +38,12 @@ from pyworkflow.protocol.params import (PointerParam, IntParam, BooleanParam,
                                         Positive, FloatParam, EnumParam)
 from pyworkflow.utils.path import cleanPath
 from pyworkflow.em.metadata.utils import iterRows
-from pyworkflow.em.data import Coordinate
+from pyworkflow.em.data import Coordinate, Particle
 
 from xmipp3.base import XmippMdRow
 from xmipp3.convert import coordinateToRow
 from xmipp3.convert import readSetOfMovieParticles, xmippToLocation, \
-    writeSetOfParticles
+    writeSetOfParticles, rowToParticle, particleToRow, setXmippAttributes
 
 
 class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
@@ -141,7 +140,6 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
     def extractCoordinatesStep(self):
         inputParticles = self.inputParticles.get()
         inputMics = self.inputMicrographs.get()
-        self.inputCoords = self._createSetOfCoordinates(inputMics)
         mdCoords = md.MetaData()
         rowCoord = XmippMdRow()
         alignType = inputParticles.getAlignment()
@@ -260,7 +258,6 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                     frameRow.setValue(md.MDL_FRAME_ID, long(frame))
                     frameRow.setValue(md.MDL_PARTICLE_ID,
                                       frameRow.getValue(md.MDL_ITEM_ID))
-
                     frameRow.writeToMd(movieMd, movieMd.addObject())
                 movieMd.addItemId()
                 movieMd.write(movieMdFile)
@@ -318,24 +315,32 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
             mdFinal = md.MetaData()
             rowsInputParts = iterRows(mdInputParts)
             for rowIn in rowsInputParts:
+                partIn = rowToParticle(rowIn)
+                if partIn.hasCTF():
+                    ctfModel = partIn.getCTF()
                 idIn = rowIn.getValue(md.MDL_ITEM_ID)
-                shiftX = rowIn.getValue(md.MDL_SHIFT_X)
-                shiftY = rowIn.getValue(md.MDL_SHIFT_Y)
-                rot = rowIn.getValue(md.MDL_ANGLE_ROT)
-                tilt = rowIn.getValue(md.MDL_ANGLE_TILT)
-                psi = rowIn.getValue(md.MDL_ANGLE_PSI)
-                flip = rowIn.getValue(md.MDL_FLIP)
                 count = 0
                 rowsOutputParts = iterRows(mdOutputParts)
+
                 for rowOut in rowsOutputParts:
                     if rowOut.getValue(md.MDL_PARTICLE_ID) == idIn:
-                        rowOut.setValue(md.MDL_SHIFT_X, shiftX)
-                        rowOut.setValue(md.MDL_SHIFT_Y, shiftY)
-                        rowOut.setValue(md.MDL_ANGLE_ROT, rot)
-                        rowOut.setValue(md.MDL_ANGLE_TILT, tilt)
-                        rowOut.setValue(md.MDL_ANGLE_PSI, psi)
-                        rowOut.setValue(md.MDL_FLIP, flip)
-                        rowOut.addToMd(mdFinal)
+                        partId = rowOut.getValue(md.MDL_PARTICLE_ID)
+                        frId = rowOut.getValue(md.MDL_FRAME_ID)
+                        partOut = rowToParticle(rowOut)
+                        if partIn.hasCTF():
+                            partOut.setCTF(ctfModel)
+                        setXmippAttributes(partOut, rowIn, md.MDL_SHIFT_X)
+                        setXmippAttributes(partOut, rowIn, md.MDL_SHIFT_Y)
+                        setXmippAttributes(partOut, rowIn, md.MDL_ANGLE_ROT)
+                        setXmippAttributes(partOut, rowIn, md.MDL_ANGLE_TILT)
+                        setXmippAttributes(partOut, rowIn, md.MDL_ANGLE_PSI)
+                        setXmippAttributes(partOut, rowIn, md.MDL_FLIP)
+
+                        rowOutFinal = md.Row()
+                        particleToRow(partOut, rowOutFinal)
+                        rowOutFinal.setValue(md.MDL_PARTICLE_ID, long(partId))
+                        rowOutFinal.setValue(md.MDL_FRAME_ID, long(frId))
+                        rowOutFinal.addToMd(mdFinal)
                         count += 1
                         if count == (frameN - frame0 + 1):
                             break
@@ -438,7 +443,6 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
         img.setFrameId(imgRow.getValue(md.MDL_FRAME_ID))
         img.setParticleId(imgRow.getValue(md.MDL_PARTICLE_ID))
         micName = self._micNameDict[imgRow.getValue(md.MDL_MICROGRAPH_ID)]
-        print('MIC NAME', micName)
         img.getCoordinate().setMicName(micName)
 
     def _getRange(self, movie):
@@ -478,21 +482,9 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
         micrographs used for picking and the ones used for extraction.
         The downsampling factor could also affect the resulting scale.
         """
-        samplingPicking = self.getCoordSampling()
+        samplingPicking = self.inputMicrographs.get().getSamplingRate()
         samplingExtract = self.inputMovies.get().getSamplingRate()
         return samplingPicking / samplingExtract
-
-    def getCoordSampling(self):
-        return self.getCoords().getMicrographs().getSamplingRate()
-
-    def getCoords(self):
-        # to support multiple access to db
-        coordSet = self.inputCoords
-        coordSetCopy = SetOfCoordinates()
-        coordSetCopy.copy(coordSet)
-        coordSet.close()
-        return coordSetCopy
-
 
     def _hasCoordinates(self, movie):
         len = 0
