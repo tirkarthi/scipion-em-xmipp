@@ -167,6 +167,3 @@ class XmippProtUmbral(XmippProcessParticles):
     def _citations(self):
         return ['']
 
-    def _validate(self):
-        return validateDLtoolkit(model=[('boxsize', 'weights.hdf5'),
-                                        ('boxsize', 'feature_scaler.pkl')])
