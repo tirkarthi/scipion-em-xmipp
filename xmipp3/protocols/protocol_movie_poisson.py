@@ -24,21 +24,16 @@
 # *
 # **************************************************************************
 
-import os
-
 from pyworkflow import VERSION_2_0
 from pyworkflow.protocol.params import PointerParam, IntParam, Positive
-from pyworkflow.utils.path import cleanPath
 from pyworkflow.em.protocol import ProtProcessMovies
 from pyworkflow.em.data import Image, Movie, SetOfMovies, SetOfImages
 from pyworkflow.protocol.constants import STEPS_SERIAL
-from xmipp3.base import XmippMdRow
 import pyworkflow.protocol.constants as cons
-from pyworkflow.object import Set
 
 import xmippLib
 import numpy as np
-import math
+from scipy.stats import chisquare, poisson
 
 
 class XmippProtMoviePoisson(ProtProcessMovies):
@@ -70,6 +65,7 @@ class XmippProtMoviePoisson(ProtProcessMovies):
             insertedDict: contains already processed movies
             inputMovies: input movies set to be check
         """
+        self.numBins = 20
         deps = []
         if isinstance(self.inputMovies.get(), Movie):
             movie = self.inputMovies.get()
@@ -93,34 +89,34 @@ class XmippProtMoviePoisson(ProtProcessMovies):
 
         fnMovie = movie.getFileName()
         movieId = movie.getObjId()
-        numBins=20
         mov = xmippLib.Image()
         mov.read(fnMovie)
         movnp = mov.getData()
         frames, _, x, y = movnp.shape
-        histTot = np.zeros((numBins, frames),dtype=int)
+        from os.path import exists
+        if not exists(self._getExtraPath("frames.txt")):
+            f = open(self._getExtraPath("frames.txt"), "w")
+            f.write(str(frames))
+            f.close()
+        histTot = np.zeros((self.numBins, frames),dtype=int)
         Inp=np.zeros((x,y),dtype=int)
         lambdaEst = movie.getAcquisition().getDosePerFrame() * ((movie.getSamplingRate()) ** 2)
         # pix = np.zeros((x*y),dtype=float)
         for f in range(frames):
             Inp[:,:] = movnp[f,:,:,:]
-            # if i==0 and int(movieId)==1: #REMOVEEEEE
-            #     np.savetxt(self._getExtraPath('frame_%d.csv' % (i)),
-            #                                   Inp, delimiter=' ')
-            hist, bins = np.histogram(Inp, bins=range(0, numBins))
+            #if f==0 and int(movieId)==1: #REMOVEEEEE
+            #    np.savetxt(self._getExtraPath('frame_%d_movie_%d.csv' % (f,movieId)), Inp, delimiter=' ')
+            hist, bins = np.histogram(Inp, bins=range(0, self.numBins))
             histTot[0:len(hist),f] = hist
             lambdaExp = float(sum(hist*bins[0:-1]))/float(sum(hist))
-            # print(lambdaEst, lambdaExp, lambdaEst-(lambdaEst*0.1), lambdaEst+(lambdaEst*0.1))
-            if lambdaExp<lambdaEst-(lambdaEst*0.15) or lambdaExp>lambdaEst+(lambdaEst*0.15):
-                print("ANORMAL DOSE: CHECK FRAME %i IN MOVIE %i " %(f,movieId))
+            h, p = chisquare(hist / float(sum(hist)), f_exp=poisson.pmf(range(self.numBins - 1), lambdaExp))
+            if lambdaExp<lambdaEst-(lambdaEst*0.25) or lambdaExp>lambdaEst+(lambdaEst*0.25):
+                print("Anormal dose: check frame %i in movie %i " %(f,movieId))
                 print("Estimated lambda %f, experimental lambda %f" % (lambdaEst, lambdaExp))
-
-        #     for i in range(x):
-        #         for j in range(y):
-        #             pix[(j*x)+i]+=Inp[i,j]
-        # pix=pix/frames
+            if p < 0.05:
+                print( "The experimental data does not follow a Poisson distribution. Frame %i in movie %i " % (f, movieId))
+                print("h %f, p %f" % (h, p))
         np.savetxt(self._getExtraPath('hist_%d.csv'%(int(movieId))), histTot, delimiter=' ')
-        # np.savetxt(self._getExtraPath('pixels_%d.csv' % (int(movieId))), pix, delimiter=' ')
 
 
     def _checkNewInput(self):
@@ -128,7 +124,21 @@ class XmippProtMoviePoisson(ProtProcessMovies):
             ProtProcessMovies._checkNewInput(self)
 
     def createOutputStep(self):
-        pass
+        from os import remove
+        import glob
+        listHist = glob.glob(self._getExtraPath('hist*csv'))
+        f = open(self._getExtraPath("frames.txt"), "r")
+        frames = f.readline()
+        f.close()
+        frames=int(frames)
+        histTot = np.zeros((self.numBins, frames * len(listHist)),dtype=int)
+        for i,fnHist in enumerate(listHist):
+            histAux = np.loadtxt(fnHist)
+            _, frames = histAux.shape
+            for f in range(frames):
+                histTot[0:len(histAux), i*frames+f] = histAux[:,f]
+            remove(fnHist)
+        np.savetxt(self._getExtraPath('histMatrix.csv'), histTot, delimiter=' ')
 
     def _checkNewOutput(self):
         if getattr(self, 'finished', False):
