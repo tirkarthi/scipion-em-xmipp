@@ -284,7 +284,7 @@ def similarityClassToNode(nodeIds, clsIds, i, k, doPrint=False):
         # ultra verbose debug
         # print("N_%s = %s" % (i, nodeIds))
         # print("C_%s = %s" % (k, clsIds))
-        print("d(N_%s, C_%s) = %s / %s = %f" % (i, k,
+        print("S(N_%s, C_%s) = %s / %s = %f" % (i, k,
                 len(clsIds.intersection(nodeIds)), float(len(clsIds)), value))
 
     return value
