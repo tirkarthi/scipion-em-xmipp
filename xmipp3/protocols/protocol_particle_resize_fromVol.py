@@ -1,6 +1,6 @@
 # **************************************************************************
 # *
-# * Authors:     Jose Luis Vilas (jlvilas@cnb.csic.es)
+# * Authors:     Erney Ramirez Aportela (eramirez@cnb.csic.es)
 # *
 # * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
 # *
