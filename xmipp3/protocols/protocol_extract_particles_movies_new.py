@@ -319,6 +319,13 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                 if partIn.hasCTF():
                     ctfModel = partIn.getCTF()
                 idIn = rowIn.getValue(md.MDL_ITEM_ID)
+                shiftXIn = rowIn.getValue(md.MDL_SHIFT_X)
+                shiftYIn = rowIn.getValue(md.MDL_SHIFT_Y)
+                rotIn = rowIn.getValue(md.MDL_ANGLE_ROT)
+                tiltIn = rowIn.getValue(md.MDL_ANGLE_TILT)
+                psiIn = rowIn.getValue(md.MDL_ANGLE_PSI)
+                flipIn = rowIn.getValue(md.MDL_FLIP)
+
                 count = 0
                 rowsOutputParts = iterRows(mdOutputParts)
 
@@ -329,17 +336,23 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                         partOut = rowToParticle(rowOut)
                         if partIn.hasCTF():
                             partOut.setCTF(ctfModel)
-                        setXmippAttributes(partOut, rowIn, md.MDL_SHIFT_X)
-                        setXmippAttributes(partOut, rowIn, md.MDL_SHIFT_Y)
-                        setXmippAttributes(partOut, rowIn, md.MDL_ANGLE_ROT)
-                        setXmippAttributes(partOut, rowIn, md.MDL_ANGLE_TILT)
-                        setXmippAttributes(partOut, rowIn, md.MDL_ANGLE_PSI)
-                        setXmippAttributes(partOut, rowIn, md.MDL_FLIP)
+                        # setXmippAttributes(partOut, rowIn, md.MDL_SHIFT_X)
+                        # setXmippAttributes(partOut, rowIn, md.MDL_SHIFT_Y)
+                        # setXmippAttributes(partOut, rowIn, md.MDL_ANGLE_ROT)
+                        # setXmippAttributes(partOut, rowIn, md.MDL_ANGLE_TILT)
+                        # setXmippAttributes(partOut, rowIn, md.MDL_ANGLE_PSI)
+                        # setXmippAttributes(partOut, rowIn, md.MDL_FLIP)
 
                         rowOutFinal = md.Row()
                         particleToRow(partOut, rowOutFinal)
                         rowOutFinal.setValue(md.MDL_PARTICLE_ID, long(partId))
                         rowOutFinal.setValue(md.MDL_FRAME_ID, long(frId))
+                        rowOutFinal.setValue(md.MDL_SHIFT_X, shiftXIn)
+                        rowOutFinal.setValue(md.MDL_SHIFT_Y, shiftYIn)
+                        rowOutFinal.setValue(md.MDL_ANGLE_ROT, rotIn)
+                        rowOutFinal.setValue(md.MDL_ANGLE_TILT, tiltIn)
+                        rowOutFinal.setValue(md.MDL_ANGLE_PSI, psiIn)
+                        rowOutFinal.setValue(md.MDL_FLIP, flipIn)
                         rowOutFinal.addToMd(mdFinal)
                         count += 1
                         if count == (frameN - frame0 + 1):
