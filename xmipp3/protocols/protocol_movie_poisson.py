@@ -25,15 +25,19 @@
 # **************************************************************************
 
 from pyworkflow import VERSION_2_0
-from pyworkflow.protocol.params import PointerParam, IntParam, Positive
+from pyworkflow.protocol.params import PointerParam, IntParam, Positive, BooleanParam
 from pyworkflow.em.protocol import ProtProcessMovies
 from pyworkflow.em.data import Image, Movie, SetOfMovies, SetOfImages
 from pyworkflow.protocol.constants import STEPS_SERIAL
 import pyworkflow.protocol.constants as cons
-
+from xmipp3.convert import writeMovieMd
+import pyworkflow.utils as pwutils
 import xmippLib
 import numpy as np
 from scipy.stats import chisquare, poisson
+import time
+import pyworkflow.em.metadata as md
+from math import floor, ceil
 
 
 class XmippProtMoviePoisson(ProtProcessMovies):
@@ -45,17 +49,18 @@ class XmippProtMoviePoisson(ProtProcessMovies):
         ProtProcessMovies.__init__(self, **args)
         self.stepsExecutionMode = STEPS_SERIAL
 
-    def _createFilenameTemplates(self):
-        """ Centralize how files are called for iterations and references. """
-        self.movieFolder = self._getTmpPath('movie_%(movieId)06d/')
-        self.frameRoot = self.movieFolder + 'frame_%(frame)02d'
-
     # --------------------------- DEFINE param functions --------------------------------------------
     def _defineParams(self, form):
         form.addSection(label='Input')
         form.addParam('inputMovies', PointerParam, label="Input movies",
                       important=True,
                       pointerClass='SetOfMovies', help='Set of aligned movies.')
+        form.addParam('autoRej', BooleanParam, label='Automatic rejection',
+                      default=False, help='Automatic rejection of movies with '
+                                          'experimental doses far from the estimated one '
+                                          'and distributions not following a Poisson. '
+                                          'The rejected movies will appear with the '
+                                          'disabled flag in the output set.')
 
 
     # --------------------------- STEPS functions ---------------------------------------------------
@@ -66,6 +71,7 @@ class XmippProtMoviePoisson(ProtProcessMovies):
             inputMovies: input movies set to be check
         """
         self.numBins = 20
+        self.movieMd = md.MetaData()
         deps = []
         if isinstance(self.inputMovies.get(), Movie):
             movie = self.inputMovies.get()
@@ -87,6 +93,8 @@ class XmippProtMoviePoisson(ProtProcessMovies):
 
     def _processMovie(self, movie):
 
+        bin=2
+        start = time.time()
         fnMovie = movie.getFileName()
         movieId = movie.getObjId()
         mov = xmippLib.Image()
@@ -99,24 +107,43 @@ class XmippProtMoviePoisson(ProtProcessMovies):
             f.write(str(frames))
             f.close()
         histTot = np.zeros((self.numBins, frames),dtype=int)
-        Inp=np.zeros((x,y),dtype=int)
+        Inp=np.zeros((int(ceil(float(x)/bin)),int(ceil(float(y)/bin))),dtype=int)
         lambdaEst = movie.getAcquisition().getDosePerFrame() * ((movie.getSamplingRate()) ** 2)
-        # pix = np.zeros((x*y),dtype=float)
+        lambdaNp=np.zeros((frames),dtype=float)
+        countNoPoiss=0
+        end = time.time()
+        print('Time loading: %f'%(end-start))
+        startA = time.time()
         for f in range(frames):
-            Inp[:,:] = movnp[f,:,:,:]
-            #if f==0 and int(movieId)==1: #REMOVEEEEE
-            #    np.savetxt(self._getExtraPath('frame_%d_movie_%d.csv' % (f,movieId)), Inp, delimiter=' ')
+            Inp[:,:] = movnp[f,:,0:x:bin,0:y:bin]
             hist, bins = np.histogram(Inp, bins=range(0, self.numBins))
             histTot[0:len(hist),f] = hist
             lambdaExp = float(sum(hist*bins[0:-1]))/float(sum(hist))
             h, p = chisquare(hist / float(sum(hist)), f_exp=poisson.pmf(range(self.numBins - 1), lambdaExp))
-            if lambdaExp<lambdaEst-(lambdaEst*0.25) or lambdaExp>lambdaEst+(lambdaEst*0.25):
-                print("Anormal dose: check frame %i in movie %i " %(f,movieId))
-                print("Estimated lambda %f, experimental lambda %f" % (lambdaEst, lambdaExp))
+            lambdaNp[f]=lambdaExp
+            if lambdaExp<lambdaEst-(lambdaEst*0.25) or lambdaExp>lambdaEst+(lambdaEst*0.10):
+                print("Abnormal dose in frame %i in movie %i - Estimated lambda %f, experimental lambda %f" %(f,movieId,lambdaEst, lambdaExp))
             if p < 0.05:
-                print( "The experimental data does not follow a Poisson distribution. Frame %i in movie %i " % (f, movieId))
-                print("h %f, p %f" % (h, p))
+                countNoPoiss+=1
+                print( "The experimental data does not follow a Poisson distribution in frame %i in movie %i - h %f, p %f" % (f, movieId, h, p))
         np.savetxt(self._getExtraPath('hist_%d.csv'%(int(movieId))), histTot, delimiter=' ')
+        endA = time.time()
+        print('Time calculating ALL histograms: %f'%(endA-startA))
+        lambdaAvg=np.mean(lambdaNp)
+        lambdaStd=np.std(lambdaNp)
+
+        mdRow=md.Row()
+        mdRow.setValue(md.MDL_ITEM_ID, long(movieId))
+        mdRow.setValue(md.MDL_ENABLED, 1)
+        mdRow.setValue(md.MDL_IMAGE, fnMovie)
+        mdRow.setValue(md.MDL_SAMPLINGRATE, movie.getSamplingRate())
+        mdRow.setValue(md.MDL_POISSON_LAMBDA_MEAN, lambdaAvg)
+        mdRow.setValue(md.MDL_POISSON_LAMBDA_STD, lambdaStd)
+        mdRow.setValue(md.MDL_POISSON_REJECTED_COUNT, countNoPoiss)
+        if self.autoRej:
+            if countNoPoiss>frames/2 or lambdaAvg<lambdaEst-(lambdaEst*0.70) or lambdaAvg>lambdaEst+(lambdaEst*0.10) or lambdaStd>lambdaAvg*0.1:
+                mdRow.setValue(md.MDL_ENABLED, 0)
+        mdRow.writeToMd(self.movieMd, self.movieMd.addObject())
 
 
     def _checkNewInput(self):
@@ -139,6 +166,7 @@ class XmippProtMoviePoisson(ProtProcessMovies):
                 histTot[0:len(histAux), i*frames+f] = histAux[:,f]
             remove(fnHist)
         np.savetxt(self._getExtraPath('histMatrix.csv'), histTot, delimiter=' ')
+        self.movieMd.write(self._getExtraPath('input_movies.xmd'))
 
     def _checkNewOutput(self):
         if getattr(self, 'finished', False):
