@@ -36,16 +36,16 @@ from xmipp3.convert import writeSetOfParticles
 class XmippProtParticleResizeFromVol(XmippProcessParticles):
     """ Given a set of particles, the protocol resize the particle from Mask center of mass.
     """
-    _label = 'particle resize'
+    _label = 'cut from center'
     _lastUpdateVersion = VERSION_2_0
     
     # --------------------------- DEFINE param functions ----------------------
     def _defineProcessParams(self, form):
-        form.addParam('inputVolume', PointerParam, pointerClass='Volume',
-                      label="Input Map", important=True,
-                      help='Select a volume to calculate the center of mass.')   
+        form.addParam('inputMask', PointerParam, pointerClass='VolumeMask',
+                      label="Mask", important=True,
+                      help='Select a mask to calculate the center of mass.')   
         form.addParam('size', IntParam, 
-                      label="dim", important=True,
+                      label="window resize", important=True,
                       help='dimensions of window to apply to images. '
                            'It must be an integer value.')             
 
@@ -66,7 +66,7 @@ class XmippProtParticleResizeFromVol(XmippProcessParticles):
         copyFile(self._getTmpPath("input_particles.xmd"),self._getExtraPath("input.xmd"))
 
 
-        self.volFn = self.inputVolume.get().getFileName()
+        self.volFn = self.inputMask.get().getFileName()
         extVol = getExt(self.volFn)       
         if (extVol == '.mrc') or (extVol == '.map'):
             self.volFn = self.volFn + ':mrc'          
@@ -75,7 +75,7 @@ class XmippProtParticleResizeFromVol(XmippProcessParticles):
     def resizeStep(self):
 
         params  = ' -i %s' % self.inputFn
-        params += ' --vol %s' % self.volFn
+        params += ' --mask %s' % self.volFn
         params += ' --boxSize %s' % self.size
         params += ' -o %s' % self.outputStk
 
@@ -115,6 +115,3 @@ class XmippProtParticleResizeFromVol(XmippProcessParticles):
     def _citations(self):
         return ['']
 
-    def _validate(self):
-        return validateDLtoolkit(model=[('boxsize', 'weights.hdf5'),
-                                        ('boxsize', 'feature_scaler.pkl')])
