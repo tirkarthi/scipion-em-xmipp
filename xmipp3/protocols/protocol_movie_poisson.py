@@ -25,19 +25,22 @@
 # **************************************************************************
 
 from pyworkflow import VERSION_2_0
-from pyworkflow.protocol.params import PointerParam, IntParam, Positive, BooleanParam
+from pyworkflow.protocol.params import PointerParam, IntParam, Positive, \
+    BooleanParam
 from pyworkflow.em.protocol import ProtProcessMovies
 from pyworkflow.em.data import Image, Movie, SetOfMovies, SetOfImages
 from pyworkflow.protocol.constants import STEPS_SERIAL
 import pyworkflow.protocol.constants as cons
 from xmipp3.convert import writeMovieMd
 import pyworkflow.utils as pwutils
+from pyworkflow.object import Set
 import xmippLib
 import numpy as np
 from scipy.stats import chisquare, poisson
 import time
 import pyworkflow.em.metadata as md
 from math import floor, ceil
+import os
 
 
 class XmippProtMoviePoisson(ProtProcessMovies):
@@ -61,7 +64,6 @@ class XmippProtMoviePoisson(ProtProcessMovies):
                                           'and distributions not following a Poisson. '
                                           'The rejected movies will appear with the '
                                           'disabled flag in the output set.')
-
 
     # --------------------------- STEPS functions ---------------------------------------------------
     def _insertNewMoviesSteps(self, insertedDict, inputMovies):
@@ -93,7 +95,7 @@ class XmippProtMoviePoisson(ProtProcessMovies):
 
     def _processMovie(self, movie):
 
-        bin=2
+        bin = 2
         start = time.time()
         fnMovie = movie.getFileName()
         movieId = movie.getObjId()
@@ -106,33 +108,44 @@ class XmippProtMoviePoisson(ProtProcessMovies):
             f = open(self._getExtraPath("frames.txt"), "w")
             f.write(str(frames))
             f.close()
-        histTot = np.zeros((self.numBins, frames),dtype=int)
-        Inp=np.zeros((int(ceil(float(x)/bin)),int(ceil(float(y)/bin))),dtype=int)
-        lambdaEst = movie.getAcquisition().getDosePerFrame() * ((movie.getSamplingRate()) ** 2)
-        lambdaNp=np.zeros((frames),dtype=float)
-        countNoPoiss=0
+        histTot = np.zeros((self.numBins, frames), dtype=int)
+        Inp = np.zeros((int(ceil(float(x) / bin)), int(ceil(float(y) / bin))),
+                       dtype=int)
+        lambdaEst = movie.getAcquisition().getDosePerFrame() * (
+                (movie.getSamplingRate()) ** 2)
+        lambdaNp = np.zeros((frames), dtype=float)
+        countNoPoiss = 0
         end = time.time()
-        print('Time loading: %f'%(end-start))
+        print('Time loading: %f' % (end - start))
         startA = time.time()
         for f in range(frames):
-            Inp[:,:] = movnp[f,:,0:x:bin,0:y:bin]
+            Inp[:, :] = movnp[f, :, 0:x:bin, 0:y:bin]
             hist, bins = np.histogram(Inp, bins=range(0, self.numBins))
-            histTot[0:len(hist),f] = hist
-            lambdaExp = float(sum(hist*bins[0:-1]))/float(sum(hist))
-            h, p = chisquare(hist / float(sum(hist)), f_exp=poisson.pmf(range(self.numBins - 1), lambdaExp))
-            lambdaNp[f]=lambdaExp
-            if lambdaExp<lambdaEst-(lambdaEst*0.25) or lambdaExp>lambdaEst+(lambdaEst*0.10):
-                print("Abnormal dose in frame %i in movie %i - Estimated lambda %f, experimental lambda %f" %(f,movieId,lambdaEst, lambdaExp))
+            histTot[0:len(hist), f] = hist
+            lambdaExp = float(sum(hist * bins[0:-1])) / float(sum(hist))
+            h, p = chisquare(hist / float(sum(hist)),
+                             f_exp=poisson.pmf(range(self.numBins - 1),
+                                               lambdaExp))
+            lambdaNp[f] = lambdaExp
+            if lambdaExp < lambdaEst - (
+                    lambdaEst * 0.25) or lambdaExp > lambdaEst + (
+                    lambdaEst * 0.10):
+                print(
+                        "Abnormal dose in frame %i in movie %i - Estimated lambda %f, experimental lambda %f" % (
+                f, movieId, lambdaEst, lambdaExp))
             if p < 0.05:
-                countNoPoiss+=1
-                print( "The experimental data does not follow a Poisson distribution in frame %i in movie %i - h %f, p %f" % (f, movieId, h, p))
-        np.savetxt(self._getExtraPath('hist_%d.csv'%(int(movieId))), histTot, delimiter=' ')
+                countNoPoiss += 1
+                print(
+                        "The experimental data does not follow a Poisson distribution in frame %i in movie %i - h %f, p %f" % (
+                f, movieId, h, p))
+        np.savetxt(self._getExtraPath('hist_%d.csv' % (int(movieId))), histTot,
+                   delimiter=' ')
         endA = time.time()
-        print('Time calculating ALL histograms: %f'%(endA-startA))
-        lambdaAvg=np.mean(lambdaNp)
-        lambdaStd=np.std(lambdaNp)
+        print('Time calculating ALL histograms: %f' % (endA - startA))
+        lambdaAvg = np.mean(lambdaNp)
+        lambdaStd = np.std(lambdaNp)
 
-        mdRow=md.Row()
+        mdRow = md.Row()
         mdRow.setValue(md.MDL_ITEM_ID, long(movieId))
         mdRow.setValue(md.MDL_ENABLED, 1)
         mdRow.setValue(md.MDL_IMAGE, fnMovie)
@@ -141,10 +154,17 @@ class XmippProtMoviePoisson(ProtProcessMovies):
         mdRow.setValue(md.MDL_POISSON_LAMBDA_STD, lambdaStd)
         mdRow.setValue(md.MDL_POISSON_REJECTED_COUNT, countNoPoiss)
         if self.autoRej:
-            if countNoPoiss>frames/2 or lambdaAvg<lambdaEst-(lambdaEst*0.70) or lambdaAvg>lambdaEst+(lambdaEst*0.10) or lambdaStd>lambdaAvg*0.1:
+            if countNoPoiss > frames / 2 or lambdaAvg < lambdaEst - (
+                    lambdaEst * 0.70) or lambdaAvg > lambdaEst + (
+                    lambdaEst * 0.10) or lambdaStd > lambdaAvg * 0.1:
                 mdRow.setValue(md.MDL_ENABLED, 0)
+                movie.setEnabled(0)
         mdRow.writeToMd(self.movieMd, self.movieMd.addObject())
-
+        movieFn = self._getMovieFn(movie)
+        with open(movieFn, 'a') as f:
+            f.write('%d %f %f %d \n' % (
+            movie.isEnabled(), lambdaAvg, lambdaStd, countNoPoiss))
+            f.close()
 
     def _checkNewInput(self):
         if isinstance(self.inputMovies.get(), SetOfMovies):
@@ -157,13 +177,13 @@ class XmippProtMoviePoisson(ProtProcessMovies):
         f = open(self._getExtraPath("frames.txt"), "r")
         frames = f.readline()
         f.close()
-        frames=int(frames)
-        histTot = np.zeros((self.numBins, frames * len(listHist)),dtype=int)
-        for i,fnHist in enumerate(listHist):
+        frames = int(frames)
+        histTot = np.zeros((self.numBins, frames * len(listHist)), dtype=int)
+        for i, fnHist in enumerate(listHist):
             histAux = np.loadtxt(fnHist)
             _, frames = histAux.shape
             for f in range(frames):
-                histTot[0:len(histAux), i*frames+f] = histAux[:,f]
+                histTot[0:len(histAux), i * frames + f] = histAux[:, f]
             remove(fnHist)
         np.savetxt(self._getExtraPath('histMatrix.csv'), histTot, delimiter=' ')
         self.movieMd.write(self._getExtraPath('input_movies.xmd'))
@@ -178,12 +198,14 @@ class XmippProtMoviePoisson(ProtProcessMovies):
                    if int(m.getObjId()) not in doneList and
                    self._isMovieDone(m)]
 
+        firstTime = len(doneList) == 0
         allDone = len(doneList) + len(newDone)
         # We have finished when there is not more input movies
         # (stream closed) and the number of processed movies is
         # equal to the number of inputs
         self.finished = self.streamClosed and \
                         allDone == len(self.listOfMovies)
+        streamMode = Set.STREAM_CLOSED if self.finished else Set.STREAM_OPEN
 
         if newDone:
             self._writeDoneList(newDone)
@@ -193,17 +215,59 @@ class XmippProtMoviePoisson(ProtProcessMovies):
             # so we exit from the function here
             return
 
+        movieSet = self._loadOutputSet(SetOfMovies, 'movies.sqlite')
+
+        for movie in newDone:
+            newMovie = movie.clone()
+            movieFn = self._getMovieFn(movie)
+            if os.path.exists(movieFn):
+                with open(movieFn, 'r') as f:
+                    dataMv = f.read()
+                    dataMv = dataMv.split()
+                    enabled = int(dataMv[0])
+                    f.close()
+            newMovie.setEnabled(enabled)
+            pwutils.cleanPath(movieFn)
+            movieSet.append(newMovie)
+        self._updateOutputSet('outputMovies', movieSet, streamMode)
+
+        if firstTime:
+            self._defineSourceRelation(self.inputMovies, movieSet)
+
         if self.finished:  # Unlock createOutputStep if finished all jobs
             outputStep = self._getFirstJoinStep()
             if outputStep and outputStep.isWaiting():
                 outputStep.setStatus(cons.STATUS_NEW)
 
+                # -------------------------- UTILS functions ------------------------------
 
-    # -------------------------- UTILS functions ------------------------------
     def _getFnRelated(self, keyFile, movId, frameIndex):
         return self._getFileName(keyFile, movieId=movId, frame=frameIndex)
 
+    def _loadOutputSet(self, SetClass, baseName):
+        """
+        Load the output set if it exists or create a new one.
+        fixSampling: correct the output sampling rate if binning was used,
+        except for the case when the original movies are kept and shifts
+        refers to that one.
+        """
+        setFile = self._getPath(baseName)
 
+        if os.path.exists(setFile) and os.path.getsize(setFile) > 0:
+            outputSet = SetClass(filename=setFile)
+            outputSet.loadAllProperties()
+            outputSet.enableAppend()
+        else:
+            outputSet = SetClass(filename=setFile)
+            outputSet.setStreamState(outputSet.STREAM_OPEN)
+
+        inputMovies = self.inputMovies.get()
+        outputSet.copyInfo(inputMovies)
+
+        return outputSet
+
+    def _getMovieFn(self, movie):
+        return self._getExtraPath('DATA_movie_%06d.TXT' % movie.getObjId())
 
     # --------------------------- INFO functions --------------------------------------------
     def _summary(self):
