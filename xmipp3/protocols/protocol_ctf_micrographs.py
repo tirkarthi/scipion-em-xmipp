@@ -243,7 +243,7 @@ class XmippProtCTFMicrographs(em.ProtCTFMicrographs):
                                     % (micFn, finalName, 1.0/downFactor))
                     psd = Image(finalName)
                     psd = psd.getData()
-                    if min(psd.shape) < self.windowSize.get():
+                    if min(psd.shape) - 2 * self.windowSize.get() < self.windowSize.get():
                         localParams['pieceDim'] = self.windowSize.get()/2
                         localParams['ctfmodelSize'] = self.windowSize.get()/2
 
