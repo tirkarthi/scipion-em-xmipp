@@ -111,13 +111,15 @@ class XmippProtDenoiseTomogram(EMProtocol):
         inputTomos = self.inputSetTomograms.get()
         outputTomos = self._createSetOfTomograms()
         outputTomos.copyInfo(inputTomos)
+
         for i, inp_tomo in enumerate(inputTomos):
             tomo_path = self.outputFiles[i]
             tomo = Tomogram()
             tomo.setLocation(tomo_path)
+            tomo.setOrigin(inp_tomo.getOrigin())
+            tomo.setAcquisition(inp_tomo.getAcquisition())
             outputTomos.append(tomo)
 
-        self._store()
         self._defineOutputs(outputTomograms=outputTomos)
         self._defineSourceRelation(self.inputSetTomograms, outputTomos)
 
