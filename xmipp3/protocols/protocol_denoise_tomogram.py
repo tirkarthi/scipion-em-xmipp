@@ -24,16 +24,11 @@
 # *
 # **************************************************************************
 
-import pyworkflow.em.metadata as md
 from pyworkflow.em.protocol import EMProtocol
-from pyworkflow.object import String
 from pyworkflow.protocol.params import IntParam, EnumParam, LEVEL_ADVANCED, FloatParam, BooleanParam, PointerParam
 
-
 from pyworkflow.utils.properties import Message
-
-from xmipp3.convert import writeSetOfParticles, writeSetOfClasses2D, xmippToLocation
-
+from tomo.objects import Tomogram, SetOfTomograms
 
 class XmippProtDenoiseTomogram(EMProtocol):
     """ Remove particles noise by filtering them.
@@ -46,22 +41,25 @@ class XmippProtDenoiseTomogram(EMProtocol):
     """
     _label = 'denoise tomogram'
 
+    def __init__(self, **args):
+        EMProtocol.__init__(self, **args)
+        self.bins_dir='/home/daniel/tomobins/'
+
     # --------------------------- DEFINE param functions --------------------------------------------
-    def _defineProcessParams(self, form):
+    def _defineParams(self, form):
         # First we customize the inputParticles param to fit our needs in this protocol
         form.addSection(label='Input')
-        form.addParam('inputTomogram', PointerParam, pointerClass='Tomogram',
-                      label=Message.LABEL_INPUT_VOLS,
-                      help='Select one tomogram')
+        form.addParam('inputSetTomograms', PointerParam, pointerClass='SetOfTomograms',
+                      label='Set Of Tomograms',
+                      help='Select one set of tomograms')
         form.addParam('method', EnumParam,
                       choices=['Anistropic Non-linear Diffusion','BFlow', 'Edge Enhancing Diffusion'], default=0,
                       label='Denoising method',
                       help='Denoising method to use.')
-
+        form.addSection(label='Parameters')
         form.addParam('SigmaGaussian', FloatParam, default=0.5,
                       label='Sigma Gaussian Filter',
                       help='Sigma for initial gaussian filtering.')
-        #TODO: nIter just different for the default, better way to write it? wizard
         form.addParam('nIter', IntParam, default=40,
                       label='Number of Iterations',
                       help='Number of Iterations of denoising.')
@@ -79,84 +77,105 @@ class XmippProtDenoiseTomogram(EMProtocol):
     # --------------------------- INSERT steps functions --------------------------------------------
     def _insertAllSteps(self):
         """ Insert every step of the protocol"""
+        inputTomos = self.inputSetTomograms.get()
+        self.outputFiles = []
+        pre = []
+        iter = 1
+        for tomo in inputTomos.iterItems():
+            stepId= self._insertFunctionStep('denoiseTomogramStep', tomo.getFileName(), iter)
+            pre.append(stepId)
+            iter += 1
 
-        # Convert input images if necessary
-        self._insertFunctionStep('denoiseTomogram')
-
-        self._insertFunctionStep('createOutputStep')
+        self._insertFunctionStep('createOutputStep', prerequisites=pre)
 
     # --------------------------- STEPS functions --------------------------------------------
-    def denoiseTomogram(self):
+    def denoiseTomogramStep(self, inp_tomo_path, iter):
         # We start preparing writing those elements we're using as input to keep them untouched
-        args=''
-        outfile='outputtomogram.mrc'
-        call='tomoeed {} inputtomogram.mrc {}'.format(args,outfile)
+        if self.method.get() == 0:
+            print('Denoising by Anistropic Non-linear Diffusion')
+            out_tomo_path = self.call_AND(inp_tomo_path, iter)
 
-        self.runJob(call)
+        elif  self.method.get() == 1:
+            print('Denoising by BFlow')
+            # call BFlow
+            out_tomo_path = self.call_BFlow(inp_tomo_path)
 
-        self.outputMd = String(outfile)
+        elif self.method.get() == 2:
+            print('Denoising by Edge Enhancing Diffusion')
+            out_tomo_path = self.call_EED(inp_tomo_path)
 
+        self.outputFiles.append(out_tomo_path)
 
-
-        imagesMd = self._getPath('images.xmd')
-        writeSetOfParticles(self.inputParticles.get(), imagesMd)
-        classesMd = self._getPath('classes.xmd')
-        writeSetOfClasses2D(self.inputClasses.get(), classesMd)
-
-        fnRoot = self._getExtraPath('pca')
-        fnRootDenoised = self._getExtraPath('imagesDenoised')
-
-        args = '-i Particles@%s --oroot %s --eigenvectors %d --maxImages %d' % (
-        imagesMd, fnRoot, self.maxPCABases.get(), self.maxClasses.get())
-        self.runJob("xmipp_image_rotational_pca", args)
-
-        N = min(self.maxPCABases.get(), self.PCABases2Project.get())
-        args = '-i %s -o %s.stk --save_metadata_stack %s.xmd --basis %s.stk %d' \
-               % (imagesMd, fnRootDenoised, fnRootDenoised, fnRoot, N)
-
-        self.runJob("xmipp_transform_filter", args)
-
-        self.outputMd = String('%s.stk' % fnRootDenoised)
 
     def createOutputStep(self):
-        imgSet = self.inputParticles.get()
-        partSet = self._createSetOfParticles()
+        inputTomos = self.inputSetTomograms.get()
+        outputTomos = self._createSetOfTomograms()
+        outputTomos.copyInfo(inputTomos)
+        for i, inp_tomo in enumerate(inputTomos):
+            tomo_path = self.outputFiles[i]
+            tomo = Tomogram()
+            tomo.setLocation(tomo_path)
+            outputTomos.append(tomo)
 
-        partSet.copyInfo(imgSet)
-        partSet.copyItems(imgSet,
-                          updateItemCallback=self._updateLocation,
-                          itemDataIterator=md.iterRows(self.outputMd.get(), sortByLabel=md.MDL_ITEM_ID))
+        self._store()
+        self._defineOutputs(outputTomograms=outputTomos)
+        self._defineSourceRelation(self.inputSetTomograms, outputTomos)
 
-        self._defineOutputs(outputParticles=partSet)
-        self._defineSourceRelation(imgSet, partSet)
 
     # --------------------------- INFO functions --------------------------------------------
     def _summary(self):
         summary = []
-        if not hasattr(self, 'outputParticles'):
-            summary.append("Output particles not ready yet.")
-        else:
-            summary.append('PCA basis created by using %d classes' % len(self.inputClasses.get()))
-            summary.append('Max. number of classes defined for PCA basis creation: %d' % self.maxClasses.get())
-            summary.append('Max. number of PCA bases defined for PCA basis creation: %d' % self.maxPCABases.get())
-            summary.append('PCA basis on which to project for denoising: %d' % self.PCABases2Project.get())
         return summary
 
     def _validate(self):
         pass
 
     def _methods(self):
-        methods = []
-        if not hasattr(self, 'outputParticles'):
-            methods.append("Output particles not ready yet.")
-        else:
-            methods.append('An input dataset of %d particles was filtered creating a PCA basis (%d components) with '
-                           'xmipp_image_rotational_pca and projecting the dataset into that base with xmipp_transform_filter.' \
-                           % (len(self.inputParticles.get()), len(self.inputClasses.get())))
-        return methods
+        pass
 
     # --------------------------- UTILS functions --------------------------------------------
-    def _updateLocation(self, item, row):
-        index, filename = xmippToLocation(row.getValue(md.MDL_IMAGE))
-        item.setLocation(index, filename)
+    def create_AND_file(self, input_tomo_path, iter):
+        '''Create the csh file that stores the parameters'''
+        input_csh = self.bins_dir + 'tomoand.csh'
+        output_csh = self._getExtraPath('tomoand_{}.csh'.format(iter))
+        output_tomo_path = self._getExtraPath('denoisedEED_'+input_tomo_path.split('/')[-1])
+        and_bin = self.bins_dir+'tomoand'
+
+        call = 'sed'
+        args = "'{}' {} > {}".format('s/Input_Tomogram.mrc/{}/g'.format(input_tomo_path.replace('/','\/')),
+                                     input_csh, output_csh)
+        self.runJob(call, args)
+        args = "-i '{}' {}".format('s/Output_Tomogram.mrc/{}/g'.format(output_tomo_path.replace('/','\/')),
+                                   output_csh)
+        self.runJob(call, args)
+        args = "-i '{}' {}".format('s/.\/tomoand/{}/g'.format(and_bin.replace('/','\/')), output_csh)
+        self.runJob(call, args)
+        args=''
+        call='chmod 777 {}'.format(output_csh)
+        self.runJob(call, args)
+        return output_csh, output_tomo_path
+
+    def call_AND(self, inp_tomo_path, iter):
+        '''Denoises de tomogram using the AND method'''
+        and_csh, out_tomo_path = self.create_AND_file(inp_tomo_path, iter)
+        args=''
+        self.runJob(and_csh,args)
+        return out_tomo_path
+
+    def call_BFlow(self, inp_tomo_path):
+        '''Denoises de tomogram using the AND method'''
+        params = '-g {} -i {} -s {}'.format(self.SigmaGaussian.get(), self.nIter.get(), self.TimeStep.get())
+        out_tomo_path = self._getExtraPath('denoisedBflow_'+inp_tomo_path.split('/')[-1])
+        args = '{} {} {}'.format(params, inp_tomo_path, out_tomo_path)
+        self.runJob(self.bins_dir+'tomobflow', args)
+        return out_tomo_path
+
+    def call_EED(self, inp_tomo_path):
+        '''Denoises de tomogram using the AND method'''
+        params = '-g {} -i {} -s {}'.format(self.SigmaGaussian.get(), self.nIter.get(), self.TimeStep.get())
+        out_tomo_path = self._getExtraPath('denoisedEED_'+inp_tomo_path.split('/')[-1])
+        args = '{} {} {}'.format(params, inp_tomo_path, out_tomo_path)
+        self.runJob(self.bins_dir+'tomoeed', args)
+        return out_tomo_path
+
 

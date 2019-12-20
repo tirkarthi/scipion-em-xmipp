@@ -124,13 +124,12 @@ from .protocol_local_ctf import XmippProtLocalCTF
 from .protocol_analyze_local_ctf import XmippProtAnalyzeLocalCTF
 from .protocol_consensus_local_ctf import XmippProtConsensusLocalCTF
 from .protocol_project_top import XmippProtProjectZ
-
+from .protocol_denoise_tomogram import XmippProtDenoiseTomogram
 
 try:
     from .protocol_subtomo_map_back import XmippProtSubtomoMapBack
     from .protocol_apply_alignment_subtomo import XmippProtApplyTransformSubtomo
     from .protocol_undo_alignment_subtomo import XmippProtUndoAlignSubtomo
-    from .protocol_denoise_tomogram import XmippProtDenoiseTomogram
 
 except ImportError:
     print(
