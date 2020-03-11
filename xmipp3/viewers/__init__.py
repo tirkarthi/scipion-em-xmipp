@@ -47,6 +47,7 @@ from .viewer_volume_strain import XmippVolumeStrainViewer
 from .viewer_reconstruct_highres import XmippReconstructHighResViewer
 from .viewer_solid_angles import SolidAnglesViewer
 from .viewer_extract_unit_cell import viewerXmippProtExtractUnit
+from .viewer_validate_fitting import XmippProtValFitViewer
 
 from .viewer_nma import XmippNMAViewer
 from .viewer_nma_alignment import XmippAlignmentNMAViewer
