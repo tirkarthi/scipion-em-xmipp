@@ -34,6 +34,7 @@ from pyworkflow.em.protocol.protocol_3d import ProtAnalysis3D
 from pyworkflow.utils import getExt
 from shutil import copyfile
 from pyworkflow.em.data import VolumeMask
+from pyworkflow.em import ImageHandler
 from pyworkflow.em.convert import Ccp4Header
 
 VALIDATE_METHOD_URL = 'http://github.com/I2PC/scipion-em-xmipp/wiki/XmippProtValFit'
@@ -45,6 +46,9 @@ RESTA_FILE = 'diferencia.vol'
 PDB_VALUE_FILE = 'pdb_diferencia.pdb'
 MASK_FILE_MRC = 'mask.mrc'
 MASK_FILE = 'mask.vol' 
+FN_VOL = 'vol.mrc'
+FN_HALF1 = 'half1.mrc'
+FN_HALF2 = 'half2.mrc'
 
 
 class XmippProtValFit(ProtAnalysis3D):
@@ -104,7 +108,10 @@ class XmippProtValFit(ProtAnalysis3D):
                  RESTA_FILE: self._getExtraPath('diferencia.vol'),
                  PDB_VALUE_FILE:  self._getExtraPath('pdb_diferencia.pdb'), 
                  MASK_FILE_MRC : self._getExtraPath('mask.mrc'),  
-                 MASK_FILE: self._getExtraPath('mask.vol')               
+                 MASK_FILE: self._getExtraPath('mask.vol'), 
+                 FN_VOL: self._getTmpPath("vol.mrc"),
+                 FN_HALF1: self._getTmpPath("half1.mrc"),
+                 FN_HALF2: self._getTmpPath("half2.mrc")             
                  }
         self._updateFilenamesDict(myDict)
 
@@ -126,13 +133,10 @@ class XmippProtValFit(ProtAnalysis3D):
         
         """Read the Origin."""
         self.shifts =volume.getOrigin(force=True).getShifts()
-#         print("kakakakakakakaka")
-#         print("origen = %f %f %f") %(shifts[0], shifts[1],shifts[2])
-#         
-#         fileName = volume.getFileName()
-#         newFileName = self._getExtraPath('prueba.mrc'),
-#         Ccp4Header.fixFile(fileName, newFileName, shifts,
-#                            volume.getSamplingRate(), Ccp4Header.ORIGIN)
+        print("kakakakakakakaka")
+        print("origen = %f %f %f") %(-self.shifts[0]/self.inputVolume.get().getSamplingRate(), 
+                                     -self.shifts[1]/self.inputVolume.get().getSamplingRate(),
+                                     -self.shifts[2]/self.inputVolume.get().getSamplingRate())
         
         self.vol = volume.getFileName()
         self.half1, self.half2 = volume.getHalfMaps().split(',')
@@ -140,7 +144,14 @@ class XmippProtValFit(ProtAnalysis3D):
         extVol = getExt(self.vol)        
         if (extVol == '.mrc') or (extVol == '.map'):
             self.vol_xmipp = self.vol + ':mrc'  
-            
+ 
+        self.fnvol = self._getFileName(FN_VOL)           
+        self.fnvol1 = self._getFileName(FN_HALF1)
+        self.fnvol2 = self._getFileName(FN_HALF2)
+        ImageHandler().convert(self.vol, self.fnvol)          
+        ImageHandler().convert(self.half1, self.fnvol1)
+        ImageHandler().convert(self.half2, self.fnvol2)  
+         
         """Create map from PDB """         
         if self.pdbMap.hasValue():   
             pdbvolume = self.pdbMap.get()
@@ -264,9 +275,7 @@ class XmippProtValFit(ProtAnalysis3D):
             
 #             self.maskFn = VolumeMask()
 #             self.maskFn.setSamplingRate(self.inputVolume.get().getSamplingRate())
- 
-
-                        
+                       
                               
     def runBlocresStep(self, i):
         # Local import to prevent discovery errors
@@ -284,9 +293,10 @@ class XmippProtValFit(ProtAnalysis3D):
             params += ' -sampling %f,%f,%f' % (self.inputVolume.get().getSamplingRate(),
                                                self.inputVolume.get().getSamplingRate(),
                                                self.inputVolume.get().getSamplingRate())
+#             params += ' -origin %f,%f,%f' % ((105.3, 105.3, 105.3))
 #             params += ' -origin %f,%f,%f' % ((self.shifts[0], self.shifts[1], self.shifts[2]))          
             params += ' -Mask %s' % self.maskFn
-            params += ' %s  %s' % (self.vol, self._getFileName(OUTPUT_PDBMRC_FILE))
+            params += ' %s  %s' % (self.fnvol, self._getFileName(OUTPUT_PDBMRC_FILE))
             params += ' %s' % self._getFileName(BLOCRES_AVG_FILE)
 
             self.runJob(bsoft.Plugin.getProgram('blocres'), params,
@@ -303,9 +313,10 @@ class XmippProtValFit(ProtAnalysis3D):
             params += ' -sampling %f,%f,%f' % (self.inputVolume.get().getSamplingRate(),
                                                self.inputVolume.get().getSamplingRate(),
                                                self.inputVolume.get().getSamplingRate()) 
+#             params += ' -origin %f,%f,%f' % ((105.3, 105.3, 105.3))
 #             params += ' -origin %f,%f,%f' % ((self.shifts[0], self.shifts[1], self.shifts[2])) 
             params += ' -Mask %s' % self.maskFn
-            params += ' %s  %s' % (self.half1, self.half2)
+            params += ' %s  %s' % (self.fnvol1, self.fnvol2)
             params += ' %s' % self._getFileName(BLOCRES_HALF_FILE)
 
             self.runJob(bsoft.Plugin.getProgram('blocres'), params,
@@ -321,9 +332,12 @@ class XmippProtValFit(ProtAnalysis3D):
     def assignPdbStep(self):
         
         shifts= self.inputVolume.get().getOrigin(force=True).getShifts()
-        originX=shifts[0]/self.inputVolume.get().getSamplingRate()
-        originY=shifts[1]/self.inputVolume.get().getSamplingRate()
-        originZ=shifts[2]/self.inputVolume.get().getSamplingRate()   
+#         originX=shifts[0]/self.inputVolume.get().getSamplingRate()
+#         originY=shifts[1]/self.inputVolume.get().getSamplingRate()
+#         originZ=shifts[2]/self.inputVolume.get().getSamplingRate()   
+        originX=128
+        originY=128
+        originZ=128  
         print('origen = %f %f %f' %(originX, originY, originZ))    
         params = ' --pdb %s ' % self.inputPDB.get()  
         params += ' --vol %s ' % self._getFileName(RESTA_FILE) 
