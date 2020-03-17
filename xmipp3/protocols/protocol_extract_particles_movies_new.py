@@ -27,6 +27,7 @@
 # *****************************************************************************
 
 import os
+from os.path import exists
 import numpy
 from pyworkflow.em.constants import ALIGN_2D, ALIGN_3D, ALIGN_PROJ, ALIGN_NONE
 import pyworkflow.em.metadata as md
@@ -72,6 +73,9 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
     # --------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         ProtProcessMovies._defineParams(self, form)
+        form.addParam('inputAlignMovieProt', PointerParam, important=True,
+                      label="Input align movie protocol", pointerClass='XmippProtMovieCorr',
+                      help='Select the protocol for movie alignment previously used.')
         form.addParam('inputParticles', PointerParam,
                       pointerClass='SetOfParticles',
                       important=True,
@@ -218,8 +222,6 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                 frameImages = self._getFnRelated('frameImages', movId, frame)
                 frameStk = self._getFnRelated('frameStk', movId, frame)
 
-                self._writeXmippPosFile(movie, coordinatesName,
-                                        shiftX[indx], shiftY[indx])
 
                 self.info("Writing frame: %s" % frameName)
                 # TODO: there is no need to write the frame and then operate
@@ -228,11 +230,36 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                 imgh.convert((frame, movieName), frameName)
 
                 self.info("Extracting particles")
-                args = '-i %(frameName)s --pos %(coordinatesName)s ' \
-                       '-o %(frameImages)s --Xdim %(boxSize)d' % locals()
 
-                args += " --downsampling %f " % self.getBoxScale()
-                self.runJob('xmipp_micrograph_scissor', args)
+                frameNum = frame-1
+                fnRoot = self.inputAlignMovieProt.get()._getExtraPath()
+                fnMovie = movie.getFileName()
+                fnAlign = fnRoot + '/' + fnMovie.split('/')[-1].split('.')[0] + '_shifts.xmd'
+                fnOutFile = self.inputAlignMovieProt.get()._getExtraPath('auxOutputFile.txt')
+
+                try:
+                    mdAlign = md.MetaData("localAlignment@"+fnAlign)
+                    #print("YESSSS " + "localAlignment@" + fnAlign)
+                    shiftX = [0] * (lastFrame - iniFrame + 1)
+                    shiftY = shiftX
+                    self._writeXmippPosFile(movie, coordinatesName,
+                                            shiftX[indx], shiftY[indx])
+                    args = '-i %(frameName)s --pos %(coordinatesName)s ' \
+                           '-o %(frameImages)s --Xdim %(boxSize)d --Xdmov %(x)d ' \
+                           '--Ydmov %(y)d --Ndmov %(n)d --curFrame %(frameNum)d ' \
+                           '-iAlign %(fnAlign)s ' % locals()
+                    args += " --downsampling %f " % self.getBoxScale()
+                    self.runJob('xmipp_micrograph_scissor_2', args)
+                except:
+                    #print("NOOOO " + "localAlignment@"+fnAlign)
+                    self._writeXmippPosFile(movie, coordinatesName,
+                                            shiftX[indx], shiftY[indx])
+                    args = '-i %(frameName)s --pos %(coordinatesName)s ' \
+                           '-o %(frameImages)s --Xdim %(boxSize)d ' % locals()
+                    args += " --downsampling %f " % self.getBoxScale()
+                    self.runJob('xmipp_micrograph_scissor', args)
+
+
                 cleanPath(frameName)
 
                 self.info("Combining particles into one stack.")

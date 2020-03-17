@@ -250,6 +250,7 @@ def installDeepLearningToolkit(plugin, env):
             cudNNwarning.append("cudNN requires CUDA 8.0 or CUDA 9.0 "
                                 "(8.0 recommended)")
 
+
     if cudNNversion is not None:
         cudNN = tryAddPipModule(env, 'cudnnenv', version='0.6.6',
                                 target="cudnnenv", default=False)
