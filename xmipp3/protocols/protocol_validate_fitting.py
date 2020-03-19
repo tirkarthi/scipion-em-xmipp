@@ -335,16 +335,16 @@ class XmippProtValFit(ProtAnalysis3D):
 #         originX=shifts[0]/self.inputVolume.get().getSamplingRate()
 #         originY=shifts[1]/self.inputVolume.get().getSamplingRate()
 #         originZ=shifts[2]/self.inputVolume.get().getSamplingRate()   
-        originX=128
-        originY=128
-        originZ=128  
-        print('origen = %f %f %f' %(originX, originY, originZ))    
+#         originX=128
+#         originY=128
+#         originZ=128  
+#         print('origen = %f %f %f' %(originX, originY, originZ))    
         params = ' --pdb %s ' % self.inputPDB.get()  
         params += ' --vol %s ' % self._getFileName(RESTA_FILE) 
         params += ' --mask %s ' % self.mask_xmipp         
         params += ' -o %s ' % self._getFileName(PDB_VALUE_FILE)    
         params += ' --sampling %f' % self.inputVolume.get().getSamplingRate()
-        params += ' --origin %f %f %f' %(originX, originY, originZ)
+#         params += ' --origin %f %f %f' %(originX, originY, originZ)
         params += ' --radius 1' 
         self.runJob('xmipp_pdb_from_volume', params)       
 
