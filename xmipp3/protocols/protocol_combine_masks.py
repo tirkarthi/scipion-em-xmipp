@@ -56,12 +56,15 @@ class XmippProtCombineMasks(ProtAnalysis3D):
         ih = ImageHandler()
         outMask = ih.createImage()
         mask_combined = np.zeros(dim, float)
-        for mask_img in self.inputMasks.get().iterItems():
+        for idp, mask_img in enumerate(self.inputMasks.get().iterItems()):
             mask = ih.read(mask_img).getData()
             if binary:
                 mask_combined += mask
             else:
-                pass
+                idm = self.intersectionMask(np.copy(mask_combined), np.copy(mask))
+                mask = mask * (idp + 1)
+                mask_combined = mask_combined + mask
+                mask_combined[idm] = (idp + 1)
         outMask.setData(mask_combined)
         ih.write(outMask, self._getExtraPath('Combined_Mask.mrc'))
 
@@ -72,6 +75,14 @@ class XmippProtCombineMasks(ProtAnalysis3D):
         volume.setLocation(self._getExtraPath('Combined_Mask.mrc'))
         self._defineOutputs(outputMask=volume)
         self._defineSourceRelation(self.inputMasks, volume)
+
+    # --------------------------- DEFINE utils functions ----------------------
+    def intersectionMask(self, minMask, maxMask):
+        minMask[minMask != 0.0] = 1
+        maxMask[maxMask != 0.0] = 1
+        sumMask = minMask + maxMask
+        idm = sumMask == 2
+        return idm
 
     # --------------------------- DEFINE info functions ----------------------
     def _methods(self):
