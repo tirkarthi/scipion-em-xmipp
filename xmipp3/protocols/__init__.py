@@ -121,3 +121,4 @@ from .protocol_analyze_local_ctf import XmippProtAnalyzeLocalCTF
 from .protocol_consensus_local_ctf import XmippProtConsensusLocalCTF
 from .protocol_particle_pick_remove_duplicates import XmippProtPickingRemoveDuplicates
 from .protocol_combine_masks import XmippProtCombineMasks
+from .protocol_model_ga import XmippProtModelGA
