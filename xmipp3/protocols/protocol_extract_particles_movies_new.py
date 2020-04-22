@@ -37,7 +37,7 @@ from pyworkflow.em.protocol import ProtExtractMovieParticles, ProtProcessMovies
 from pyworkflow.protocol.constants import LEVEL_ADVANCED, STEPS_PARALLEL
 from pyworkflow.protocol.params import (PointerParam, IntParam, BooleanParam,
                                         Positive, FloatParam, EnumParam)
-from pyworkflow.utils.path import cleanPath
+from pyworkflow.utils.path import cleanPath, removeExt
 from pyworkflow.em.metadata.utils import iterRows
 from pyworkflow.em.data import Coordinate, Particle
 
@@ -177,7 +177,8 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
             else:
                 newCoord.copyObjId(particle)
                 x, y = coord.getPosition()
-                if inputParticles.hasAlignmentProj():
+                if inputParticles.hasAlignmentProj() and False: #TODO: check if we need this condition or not, now it seems we dont need it
+		    print("AQUIIII")
                     shifts = self.getShifts(particle.getTransform(), alignType)
                     xCoor, yCoor = x - int(shifts[0]), y - int(shifts[1])
                 else:
@@ -233,13 +234,13 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
 
                 frameNum = frame-1
                 fnRoot = self.inputAlignMovieProt.get()._getExtraPath()
-                fnMovie = movie.getFileName()
-                fnAlign = fnRoot + '/' + fnMovie.split('/')[-1].split('.')[0] + '_shifts.xmd'
+                fnMovie = removeExt(movie.getFileName())
+                fnAlign = fnRoot + '/' + fnMovie.split('/')[-1] + '_shifts.xmd'
                 fnOutFile = self.inputAlignMovieProt.get()._getExtraPath('auxOutputFile.txt')
 
                 try:
-                    mdAlign = md.MetaData("localAlignment@"+fnAlign)
                     #print("YESSSS " + "localAlignment@" + fnAlign)
+                    mdAlign = md.MetaData("localAlignment@"+fnAlign)
                     shiftX = [0] * (lastFrame - iniFrame + 1)
                     shiftY = shiftX
                     self._writeXmippPosFile(movie, coordinatesName,
@@ -581,7 +582,7 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
         return shifts
 
     def geometryFromMatrix(self, matrix, inverseTransform):
-        from pyworkflow.em.transformations import translation_from_matrix
+        from pyworkflow.em.convert.transformations import translation_from_matrix
         if inverseTransform:
             matrix = numpy.linalg.inv(matrix)
             shifts = -translation_from_matrix(matrix)

@@ -201,7 +201,12 @@ if not getattr(xmippLib, "GHOST_ACTIVATED", False):
         xmippLib.MDL_FRAME_ID,
         xmippLib.MDL_SCORE_BY_VAR,
         xmippLib.MDL_SCORE_BY_GINI,
-        xmippLib.MDL_ZSCORE_DEEPLEARNING1
+        xmippLib.MDL_ZSCORE_DEEPLEARNING1,
+        xmippLib.MDL_WEIGHT,
+        xmippLib.MDL_WEIGHT_SIGNIFICANT,
+        xmippLib.MDL_REF,
+        xmippLib.MDL_IMAGE_IDX,
+        xmippLib.MDL_MAXCC
         ]
 
     ANGLES_DICT = OrderedDict([
