@@ -28,27 +28,35 @@
 import numpy as np
 
 from pyworkflow import VERSION_2_0
-from pyworkflow.protocol.params import (PointerParam,
-                                        IntParam, FileParam)
+from pyworkflow.protocol.params import (PointerParam, BooleanParam,
+                                        IntParam, FileParam, FloatParam)
+import pyworkflow.em.metadata as md
+from pyworkflow.em.metadata.constants import (MDL_VOLUME_SCORE1, MDL_VOLUME_SCORE2)
 from pyworkflow.em.protocol.protocol_3d import ProtAnalysis3D
 from pyworkflow.utils import getExt
+from pyworkflow.object import Float
 from shutil import copyfile
 from pyworkflow.em.data import VolumeMask
 from pyworkflow.em import ImageHandler
 from pyworkflow.em.convert import Ccp4Header
+import pyworkflow.em as em
+import xmipp3
 
 VALIDATE_METHOD_URL = 'http://github.com/I2PC/scipion-em-xmipp/wiki/XmippProtValFit'
 OUTPUT_PDBVOL_FILE = 'pdbVol'
-OUTPUT_PDBMRC_FILE = 'pdb_volume.mrc'
+OUTPUT_PDBMRC_FILE = 'pdb_volume.map'
 BLOCRES_AVG_FILE = 'blocresAvg'
 BLOCRES_HALF_FILE = 'blocresHalf'
 RESTA_FILE = 'diferencia.vol'
+RESTA_FILE_MRC = 'diferencia.map'
 PDB_VALUE_FILE = 'pdb_diferencia.pdb'
-MASK_FILE_MRC = 'mask.mrc'
+MASK_FILE_MRC = 'mask.map'
 MASK_FILE = 'mask.vol' 
-FN_VOL = 'vol.mrc'
-FN_HALF1 = 'half1.mrc'
-FN_HALF2 = 'half2.mrc'
+FN_VOL = 'vol.map'
+FN_HALF1 = 'half1.map'
+FN_HALF2 = 'half2.map'
+MD_MEANS = 'params.xmd'
+
 
 
 class XmippProtValFit(ProtAnalysis3D):
@@ -61,6 +69,8 @@ class XmippProtValFit(ProtAnalysis3D):
     def __init__(self, **args):
         ProtAnalysis3D.__init__(self, **args)
         self.stepsExecutionMode = 1
+        self.mean_init = Float()
+        self.meanA_init = Float()
     
     # --------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
@@ -73,7 +83,7 @@ class XmippProtValFit(ProtAnalysis3D):
 #         form.addParam('inputPDB', PointerParam, pointerClass='PdbFile',
 #                       label="Refined PDB", important=True, )
         form.addParam('inputPDB', FileParam,
-                      label="File path", important=True,
+                      label="PDB File path", important=True,
                       help='Specify a path to desired PDB structure.')
         
         form.addParam('pdbMap', PointerParam, pointerClass='Volume',
@@ -94,6 +104,20 @@ class XmippProtValFit(ProtAnalysis3D):
                       label="window size",
                       help='Kernel size for determining'
                       ' local resolution (pixels/voxels).')
+        
+        form.addParam('setOrigCoord', BooleanParam,
+                      label="Set origin of coordinates",
+                      help="Option YES:\nA new volume will be created with "
+                           "the given ORIGIN of coordinates. ",
+                      default=False)       
+        
+        form.addParam('xcoor', FloatParam, default=0, condition='setOrigCoord',
+                      label="x", help="offset along x axis")
+        form.addParam('ycoor', FloatParam, default=0, condition='setOrigCoord',
+                      label="y", help="offset along y axis")
+        form.addParam('zcoor', FloatParam, default=0, condition='setOrigCoord',
+                      label="z", help="offset along z axis")
+        
         form.addParallelSection(threads=8, mpi=1)
 
     # --------------------------- INSERT steps functions --------------------------------------------
@@ -102,16 +126,18 @@ class XmippProtValFit(ProtAnalysis3D):
         """ Centralize how files are called """
         myDict = {
                  OUTPUT_PDBVOL_FILE: self._getTmpPath('pdb_volume'),
-                 OUTPUT_PDBMRC_FILE: self._getExtraPath('pdb_volume.mrc'),
-                 BLOCRES_AVG_FILE: self._getExtraPath('blocres_avg.map'),
-                 BLOCRES_HALF_FILE: self._getExtraPath('blocres_half.map'),
-                 RESTA_FILE: self._getExtraPath('diferencia.vol'),
-                 PDB_VALUE_FILE:  self._getExtraPath('pdb_diferencia.pdb'), 
-                 MASK_FILE_MRC : self._getExtraPath('mask.mrc'),  
-                 MASK_FILE: self._getExtraPath('mask.vol'), 
-                 FN_VOL: self._getTmpPath("vol.mrc"),
-                 FN_HALF1: self._getTmpPath("half1.mrc"),
-                 FN_HALF2: self._getTmpPath("half2.mrc")             
+                 OUTPUT_PDBMRC_FILE: self._getExtraPath('pdb_volume.map'),
+                 BLOCRES_AVG_FILE: self._getTmpPath('blocres_avg.map'),
+                 BLOCRES_HALF_FILE: self._getTmpPath('blocres_half.map'),
+                 RESTA_FILE: self._getTmpPath('diferencia.vol'),
+                 RESTA_FILE_MRC: self._getExtraPath('diferencia.map'),
+                 PDB_VALUE_FILE:  self._getExtraPath('pdb_diferencia.pdb'),
+                 MASK_FILE_MRC : self._getExtraPath('mask.map'),  
+                 MASK_FILE: self._getTmpPath('mask.vol'), 
+                 FN_VOL: self._getTmpPath("vol.map"),
+                 FN_HALF1: self._getTmpPath("half1.map"),
+                 FN_HALF2: self._getTmpPath("half2.map"),  
+                 MD_MEANS: self._getExtraPath('params.xmd')        
                  }
         self._updateFilenamesDict(myDict)
 
@@ -122,52 +148,56 @@ class XmippProtValFit(ProtAnalysis3D):
         Id = []
         for i in range(2):
             Id.append(self._insertFunctionStep('runBlocresStep', i, prerequisites=[input]))   
-        input1 =self._insertFunctionStep('substractBlocresStep',prerequisites=Id)    
-
-        self._insertFunctionStep('assignPdbStep', prerequisites=[input1])     
-
+        input1 = self._insertFunctionStep('substractBlocresStep',prerequisites=Id)    
+        input2 = self._insertFunctionStep('assignPdbStep', prerequisites=[input1])  
+        self._insertFunctionStep('createOutputStep', prerequisites=[input2])         
+           
 
     def convertInputStep(self):
         """ Read the input volume."""
-        volume = self.inputVolume.get()
+        self.volume = self.inputVolume.get()
         
         """Read the Origin."""
-        self.shifts =volume.getOrigin(force=True).getShifts()
-        print("kakakakakakakaka")
-        print("origen = %f %f %f") %(-self.shifts[0]/self.inputVolume.get().getSamplingRate(), 
-                                     -self.shifts[1]/self.inputVolume.get().getSamplingRate(),
-                                     -self.shifts[2]/self.inputVolume.get().getSamplingRate())
+        if self.setOrigCoord.get():
+            self.x = self.xcoor.get()
+            self.y = self.ycoor.get()
+            self.z = self.zcoor.get()
+        else:
+            self.x = 0
+            self.y = 0
+            self.z = 0  
+                                       
+        self.sampling = self.volume.getSamplingRate()
+        self.origin = (-self.x*self.sampling, -self.y*self.sampling, -self.z*self.sampling) 
         
-        self.vol = volume.getFileName()
-        self.half1, self.half2 = volume.getHalfMaps().split(',')
+        self.vol = self.volume.getFileName()
+        self.half1, self.half2 = self.volume.getHalfMaps().split(',')
 
         extVol = getExt(self.vol)        
         if (extVol == '.mrc') or (extVol == '.map'):
-            self.vol_xmipp = self.vol + ':mrc'  
+            self.vol_xmipp = self.vol + ':mrc' 
+        else:
+            self.vol_xmipp = self.vol     
  
         self.fnvol = self._getFileName(FN_VOL)           
         self.fnvol1 = self._getFileName(FN_HALF1)
         self.fnvol2 = self._getFileName(FN_HALF2)
-        ImageHandler().convert(self.vol, self.fnvol)          
-        ImageHandler().convert(self.half1, self.fnvol1)
-        ImageHandler().convert(self.half2, self.fnvol2)  
-         
+
+        Ccp4Header.fixFile(self.vol, self.fnvol, self.origin, self.sampling,
+                        Ccp4Header.START)
+        Ccp4Header.fixFile(self.half1, self.fnvol1, self.origin, self.sampling,
+                        Ccp4Header.START) 
+        Ccp4Header.fixFile(self.half2, self.fnvol2, self.origin, self.sampling,
+                        Ccp4Header.START)        
+        
         """Create map from PDB """         
         if self.pdbMap.hasValue():   
             pdbvolume = self.pdbMap.get()
             self.pdbvol = pdbvolume.getFileName()
-            ext = getExt(self.pdbvol) 
-            if (ext == '.mrc') or (ext == '.map'):                    
-                copyfile(pdbvolume.getFileName(),self._getFileName(OUTPUT_PDBMRC_FILE))
-            else:
-                params = ' -i %s' % self.pdbvol 
-                params += ' -o %s' % self._getFileName(OUTPUT_PDBMRC_FILE)   
-                params += ' -t vol'            
-                self.runJob('xmipp_image_convert', params)
-                
-                params = ' -i %s' % self._getFileName(OUTPUT_PDBMRC_FILE) 
-                params += ' -s %f' % self.inputVolume.get().getSamplingRate()           
-                self.runJob('xmipp_image_header', params)
+            
+            self.pdbmap = self._getFileName(OUTPUT_PDBMRC_FILE)
+            Ccp4Header.fixFile(self.pdbvol, self.pdbmap, self.origin, self.sampling,
+                        Ccp4Header.START) 
       
         else:         
             """ Convert PDB to Map """           
@@ -189,22 +219,22 @@ class XmippProtValFit(ProtAnalysis3D):
             
             """ convert align vol to mrc format """
             
-            params = ' -i %s' % self._getFileName(OUTPUT_PDBVOL_FILE)+'.vol' 
-            params += ' -o %s' % self._getFileName(OUTPUT_PDBMRC_FILE)   
-            params += ' -t vol'            
-            self.runJob('xmipp_image_convert', params)
-            
-            params = ' -i %s' % self._getFileName(OUTPUT_PDBMRC_FILE) 
-            params += ' -s %f' % self.inputVolume.get().getSamplingRate()           
-            self.runJob('xmipp_image_header', params)  
+            self.pdbvol = self._getFileName(OUTPUT_PDBVOL_FILE)+'.vol' 
+            self.pdbmap = self._getFileName(OUTPUT_PDBMRC_FILE)
+            Ccp4Header.fixFile(self.pdbvol, self.pdbmap, self.origin, self.sampling,
+                        Ccp4Header.START) 
         
         
         """ Create a mask"""               
         if self.Mask.hasValue():
-            self.maskFn = self.Mask.get().getFileName()
-            extM = getExt(self.maskFn)        
-            if (extM == '.mrc') or (extM == '.map'):
-                self.mask_xmipp = self.maskFn + ':mrc' 
+            self.maskIn = self.Mask.get().getFileName()
+            self.maskFn = self._getFileName(MASK_FILE_MRC)           
+            Ccp4Header.fixFile(self.maskIn, self.maskFn, self.origin, self.sampling,
+                        Ccp4Header.START)
+
+            
+            self.mask_xmipp = self.maskFn + ':mrc' 
+            
         else:
             
             self.maskFn = self._getFileName(MASK_FILE_MRC)
@@ -223,15 +253,9 @@ class XmippProtValFit(ProtAnalysis3D):
                 self.runJob('xmipp_transform_morphology', params) 
                  
                 """ convert mask.vol to mrc format """
-             
-                params = ' -i %s' % self.mask_xmipp  
-                params += ' -o %s' % self.maskFn   
-                params += ' -t vol'            
-                self.runJob('xmipp_image_convert', params)
-            
-                params = ' -i %s' % self.maskFn
-                params += ' -s %f' % self.inputVolume.get().getSamplingRate()           
-                self.runJob('xmipp_image_header', params) 
+                               
+                self.maskFn = self._getFileName(MASK_FILE_MRC)           
+                ImageHandler().convert(self.mask_xmipp, self.maskFn) 
                 
             else:
                 """ Convert PDB to Map """           
@@ -251,6 +275,8 @@ class XmippProtValFit(ProtAnalysis3D):
                 params += ' %s' % self._getFileName(OUTPUT_PDBVOL_FILE)+'.vol'                    
                 self.runJob('xmipp_volume_align', params)  
                 
+                """ create mask from pdbMap """
+                
                 params = ' -i %s' % self._getFileName(OUTPUT_PDBVOL_FILE)+'.vol'          
                 params += ' -o %s' % self.mask_xmipp
                 params += ' --select below 0.02 --substitute binarize'                    
@@ -262,19 +288,9 @@ class XmippProtValFit(ProtAnalysis3D):
                 self.runJob('xmipp_transform_morphology', params) 
                  
                 """ convert mask.vol to mrc format """
-             
-                params = ' -i %s' % self.mask_xmipp  
-                params += ' -o %s' % self.maskFn   
-                params += ' -t vol'            
-                self.runJob('xmipp_image_convert', params)
-            
-                params = ' -i %s' % self.maskFn
-                params += ' -s %f' % self.inputVolume.get().getSamplingRate()           
-                self.runJob('xmipp_image_header', params) 
-                
-            
-#             self.maskFn = VolumeMask()
-#             self.maskFn.setSamplingRate(self.inputVolume.get().getSamplingRate())
+                self.maskFn = self._getFileName(MASK_FILE_MRC)           
+                Ccp4Header.fixFile(self.mask_xmipp, self.maskFn, self.origin, self.sampling,
+                        Ccp4Header.START)
                        
                               
     def runBlocresStep(self, i):
@@ -293,7 +309,6 @@ class XmippProtValFit(ProtAnalysis3D):
             params += ' -sampling %f,%f,%f' % (self.inputVolume.get().getSamplingRate(),
                                                self.inputVolume.get().getSamplingRate(),
                                                self.inputVolume.get().getSamplingRate())
-#             params += ' -origin %f,%f,%f' % ((105.3, 105.3, 105.3))
 #             params += ' -origin %f,%f,%f' % ((self.shifts[0], self.shifts[1], self.shifts[2]))          
             params += ' -Mask %s' % self.maskFn
             params += ' %s  %s' % (self.fnvol, self._getFileName(OUTPUT_PDBMRC_FILE))
@@ -313,7 +328,6 @@ class XmippProtValFit(ProtAnalysis3D):
             params += ' -sampling %f,%f,%f' % (self.inputVolume.get().getSamplingRate(),
                                                self.inputVolume.get().getSamplingRate(),
                                                self.inputVolume.get().getSamplingRate()) 
-#             params += ' -origin %f,%f,%f' % ((105.3, 105.3, 105.3))
 #             params += ' -origin %f,%f,%f' % ((self.shifts[0], self.shifts[1], self.shifts[2])) 
             params += ' -Mask %s' % self.maskFn
             params += ' %s  %s' % (self.fnvol1, self.fnvol2)
@@ -329,25 +343,34 @@ class XmippProtValFit(ProtAnalysis3D):
         params += ' -o %s ' % self._getFileName(RESTA_FILE)       
         self.runJob('xmipp_image_operate', params)
         
-    def assignPdbStep(self):
+        Ccp4Header.fixFile(self._getFileName(RESTA_FILE), self._getFileName(RESTA_FILE_MRC), 
+                           self.origin, self.sampling, Ccp4Header.START)
+                    
         
-        shifts= self.inputVolume.get().getOrigin(force=True).getShifts()
-#         originX=shifts[0]/self.inputVolume.get().getSamplingRate()
-#         originY=shifts[1]/self.inputVolume.get().getSamplingRate()
-#         originZ=shifts[2]/self.inputVolume.get().getSamplingRate()   
-#         originX=128
-#         originY=128
-#         originZ=128  
-#         print('origen = %f %f %f' %(originX, originY, originZ))    
+    def assignPdbStep(self):
+                 
         params = ' --pdb %s ' % self.inputPDB.get()  
-        params += ' --vol %s ' % self._getFileName(RESTA_FILE) 
+        params += ' --vol %s ' % self._getFileName(RESTA_FILE_MRC) 
         params += ' --mask %s ' % self.mask_xmipp         
         params += ' -o %s ' % self._getFileName(PDB_VALUE_FILE)    
         params += ' --sampling %f' % self.inputVolume.get().getSamplingRate()
-#         params += ' --origin %f %f %f' %(originX, originY, originZ)
-        params += ' --radius 1' 
-        self.runJob('xmipp_pdb_from_volume', params)       
-
+        params += ' --origin %f %f %f' %(self.x, self.y, self.z)
+        params += ' --radius 0.8'  
+        params += ' --md %s' % self._getFileName(MD_MEANS)     
+        self.runJob('xmipp_pdb_from_volume', params)      
+        
+    def createOutputStep(self):    
+              
+        mtd = md.MetaData()
+        mtd.read(self._getFileName(MD_MEANS))
+            
+        self.mean = mtd.getValue(MDL_VOLUME_SCORE1,1)
+        self.meanA = mtd.getValue(MDL_VOLUME_SCORE2,1)
+        
+        self.mean_init.set(round(self.mean*100)/100) 
+        self.meanA_init.set(round(self.meanA*100)/100)             
+        self._store(self.mean_init)
+        self._store(self.meanA_init)
 
     # --------------------------- INFO functions ------------------------------
 
@@ -357,6 +380,13 @@ class XmippProtValFit(ProtAnalysis3D):
             messages.append(
                 'Information about the method/article in ' + VALIDATE_METHOD_URL)
         return messages
+    
+    def _summary(self):
+        summary = []
+        summary.append("Mean deviation from the signal of the Half Maps")
+        summary.append("Mean FSC-Q: %.2f" % (self.mean_init))  
+        summary.append("Absotute Mean FSC-Q: %.2f" % (self.meanA_init))  
+        return summary
 
     def _validate(self):
         errors = []

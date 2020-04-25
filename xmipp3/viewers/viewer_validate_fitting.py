@@ -52,7 +52,7 @@ from pyworkflow.em import ImageHandler
 
 from .plotter import XmippPlotter
 from xmipp3.protocols.protocol_validate_fitting import \
-        XmippProtValFit, RESTA_FILE, OUTPUT_PDBMRC_FILE, \
+        XmippProtValFit, RESTA_FILE_MRC, OUTPUT_PDBMRC_FILE, \
         PDB_VALUE_FILE
 
 
@@ -77,17 +77,20 @@ class XmippProtValFitViewer(ProtocolViewer):
     def _defineParams(self, form):
         self._env = os.environ.copy()
         form.addSection(label='Visualization')
+        
         group = form.addGroup('Visualization')
+        
         group.addParam('displayVolume', LabelParam,
                       important=True,
                       label='Display Volume Output')
-#         group.addParam('displayPDB', LabelParam,
-#                       label='Display PDB Output')
+
+
         group.addParam('displayPDB', EnumParam,
                       choices=['by residue', 'by atom'],
                       default=0, important=True,
                       display=EnumParam.DISPLAY_COMBO,
-                      label='Display PDB Output')      
+                      label='Display PDB Output')  
+            
         
     def _getVisualizeDict(self):
         self.protocol._createFilenameTemplates()
@@ -101,16 +104,17 @@ class XmippProtValFitViewer(ProtocolViewer):
         return visualizeDict    
 
     def _visualize_vol(self, obj, **args):
+         
         # show coordinate axis
         fnRoot = os.path.abspath(self.protocol._getExtraPath())
         
         _inputVol = self.protocol.inputVolume.get()
-        dim = _inputVol.getDim()[0]
-        bildFileName = os.path.abspath(self.protocol._getTmpPath(
-            "axis_output.bild"))
-        Chimera.createCoordinateAxisFile(dim,
-                                 bildFileName=bildFileName,
-                                 sampling=_inputVol.getSamplingRate())
+#         dim = _inputVol.getDim()[0]
+#         bildFileName = os.path.abspath(self.protocol._getTmpPath(
+#             "axis_output.bild"))
+#         Chimera.createCoordinateAxisFile(dim,
+#                                  bildFileName=bildFileName,
+#                                  sampling=_inputVol.getSamplingRate())
         fnCmd = self.protocol._getTmpPath("chimera_VOLoutput.cmd")
         f = open(fnCmd, 'w')
 #         f.write("open %s\n" % bildFileName)
@@ -118,7 +122,7 @@ class XmippProtValFitViewer(ProtocolViewer):
 #         showVolFileName = os.path.abspath(
 #                         ImageHandler.removeFileType(_inputVol.getFileName()))
         f.write("open %s\n" % (fnRoot+'/'+OUTPUT_PDBMRC_FILE))
-        f.write("open %s\n" % (fnRoot+'/'+RESTA_FILE))
+        f.write("open %s\n" % (fnRoot+'/'+RESTA_FILE_MRC))
 #         if _inputVol.hasOrigin():
 #             x, y, z = _inputVol.getOrigin().getShifts()
 #         else:
@@ -144,7 +148,9 @@ class XmippProtValFitViewer(ProtocolViewer):
         Chimera.runProgram(Chimera.getProgram(), fnCmd+"&")
         return []
     
+    
     def _visualize_pdb(self, obj, **args):
+        
         # show coordinate axis
         fnRoot = os.path.abspath(self.protocol._getExtraPath())
         fnCmd = self.protocol._getTmpPath("chimera_PDBoutput.cmd")
@@ -166,5 +172,7 @@ class XmippProtValFitViewer(ProtocolViewer):
         Chimera.runProgram(Chimera.getProgram(), fnCmd+"&")
         return []   
      
+   
+
 
 
