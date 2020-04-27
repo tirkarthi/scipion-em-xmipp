@@ -91,9 +91,23 @@ class XmippProtModelGA(ProtAnalysis3D):
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
 
         print(new_population[score_population.argmax()])
+        self.bestIndividual = new_population[score_population.argmax()]
 
     def createOutputStep(self):
-        pass
+        ih = ImageHandler()
+        outMask = ih.createImage()
+        outData = np.zeros(self.idMask.shape, float)
+        for pos, idm in enumerate(self.regions_id):
+            logic_mask = self.idMask == idm
+            outData += self.bestIndividual[pos] * (self.idMask * logic_mask / idm)
+        outMask.setData(outData)
+        ih.write(outMask, self._getExtraPath('outMask.mrc'))
+        volume = Volume()
+        volume.setSamplingRate(self.inputMask.get().getSamplingRate())
+        volume.setLocation(self._getExtraPath('outMask.mrc'))
+        self._defineOutputs(outputMask=volume)
+        self._defineSourceRelation(self.inputMask, volume)
+
 
     # --------------------------- DEFINE utils functions ----------------------
     def scorePopulation(self, population):
@@ -151,7 +165,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         for idx in range(offspring.shape[0]):
             num_rnd = np.random.uniform()
             idg_rnd = np.random.random_integers(0, offspring.shape[1] - 1)
-            chain_rnd = np.random.random_integers(1, offspring.shape[1])
+            chain_rnd = np.random.random_integers(1, len(self.seqs))
             if num_rnd <= p_mutation:
                 offspring[idx, idg_rnd] = float(chain_rnd)
 
