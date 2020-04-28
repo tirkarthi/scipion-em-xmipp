@@ -90,8 +90,8 @@ class XmippProtModelGA(ProtAnalysis3D):
             score_population = self.scorePopulation(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
 
-        print(new_population[score_population.argmax()])
-        self.bestIndividual = new_population[score_population.argmax()]
+        print(new_population[score_population.argmin()])
+        self.bestIndividual = new_population[score_population.argmin()]
 
     def createOutputStep(self):
         ih = ImageHandler()
@@ -118,9 +118,11 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
         submass = np.asarray(submass)
+        submass = (submass) / np.mean(submass)
 
         map_region_mass = [mean_density_prot * np.sum(self.idMask[self.idMask == idr]) for idr in self.regions_id]
         map_region_mass = np.asarray(map_region_mass)
+        map_region_mass = (map_region_mass) / np.mean(map_region_mass)
 
         score_population = np.zeros(len(population))
         for idx in range((len(self.seqs)-1)):
@@ -139,12 +141,14 @@ class XmippProtModelGA(ProtAnalysis3D):
         cdf = np.asarray(cdf)
 
         for idp in range(num_parents):
-            num_rnd = np.random.uniform()
-            aux = np.sort(np.append(cdf, num_rnd))
-            idx = np.where(aux == num_rnd)
-            if not idx == 0:
-                idx = idx[0] - 1
-            parents[idp,:] = population[idx_sort[idx],:]
+            # num_rnd = np.random.uniform()
+            # aux = np.sort(np.append(cdf, num_rnd))
+            # idx = np.where(aux == num_rnd)
+            # if not idx == 0:
+            #     idx = idx[0] - 1
+            # parents[idp,:] = population[idx_sort[idx],:]
+            parents[idp, :] = population[np.argmin(score), :]
+            score[np.argmin(score)] = np.inf
 
         return parents
 
