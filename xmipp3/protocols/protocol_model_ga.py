@@ -111,24 +111,22 @@ class XmippProtModelGA(ProtAnalysis3D):
 
     # --------------------------- DEFINE utils functions ----------------------
     def scorePopulation(self, population):
-        mean_density_prot = 0.813  # Da / (A^3)
-        mean_mass_aa = 110  # Da
+        mean_density_prot = 8.1325e-04  # KDa / (A^3)
+        mean_mass_aa = 0.110  # KDa
         sampling_rate = self.inputMask.get().getSamplingRate() ** 3  # A^3 / voxel
         mean_density_prot *= sampling_rate
 
         submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
         submass = np.asarray(submass)
-        submass = (submass) / np.mean(submass)
 
-        map_region_mass = [mean_density_prot * np.sum(self.idMask[self.idMask == idr]) for idr in self.regions_id]
+        map_region_mass = [mean_density_prot * np.sum(self.idMask[self.idMask == idr]) / idr for idr in self.regions_id]
         map_region_mass = np.asarray(map_region_mass)
-        map_region_mass = (map_region_mass) / np.mean(map_region_mass)
 
         score_population = np.zeros(len(population))
         for idx in range((len(self.seqs)-1)):
             for idi, individual in enumerate(population):
                 map_regions = np.where(individual == (idx + 1))
-                score_population[idi] += (submass[idx] - np.sum(map_region_mass[map_regions])) ** 2
+                score_population[idi] += np.abs(submass[idx] - np.sum(map_region_mass[map_regions]))
 
         return score_population
 
@@ -141,14 +139,19 @@ class XmippProtModelGA(ProtAnalysis3D):
         cdf = np.asarray(cdf)
 
         for idp in range(num_parents):
-            # num_rnd = np.random.uniform()
-            # aux = np.sort(np.append(cdf, num_rnd))
-            # idx = np.where(aux == num_rnd)
-            # if not idx == 0:
-            #     idx = idx[0] - 1
-            # parents[idp,:] = population[idx_sort[idx],:]
-            parents[idp, :] = population[np.argmin(score), :]
-            score[np.argmin(score)] = np.inf
+            if idp <= np.ceil(num_parents):
+                parents[idp, :] = population[np.argmin(score), :]
+                score[np.argmin(score)] = np.inf
+            else:
+                score_candidate = np.inf
+                while score_candidate == np.inf:
+                    num_rnd = np.random.uniform()
+                    aux = np.sort(np.append(cdf, num_rnd))
+                    idx = np.where(aux == num_rnd)
+                    if not idx == 0:
+                        idx = idx[0] - 1
+                    score_candidate = score[idx_sort[idx]]
+                parents[idp, :] = population[idx_sort[idx], :]
 
         return parents
 
