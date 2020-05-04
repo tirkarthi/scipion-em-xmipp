@@ -82,7 +82,7 @@ class XmippProtModelGA(ProtAnalysis3D):
             score_population = self.scorePopulation(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], num_regions)
-            offspring_crossover = self.crossover(parents, offspring_size)
+            offspring_crossover = self.crossover(new_population, offspring_size)
             offspring_mutation = self.mutation(offspring_crossover)
             new_population[0:parents.shape[0], :] = parents
             new_population[parents.shape[0]:, :] = offspring_mutation
@@ -134,38 +134,27 @@ class XmippProtModelGA(ProtAnalysis3D):
 
     def matingPool(self, population, score, num_parents):
         parents = np.empty((num_parents, population.shape[1]))
-        score_inv = 1 / score
-        idx_sort = np.argsort(score_inv)
-        probabilities = score_inv[idx_sort] / np.sum(score_inv)
-        cdf = [np.sum(probabilities[:idx+1]) for idx in range(len(probabilities))]
-        cdf = np.asarray(cdf)
+        # score_inv = 1 / score
+        # idx_sort = np.argsort(score_inv)
+        # probabilities = score_inv[idx_sort] / np.sum(score_inv)
+        # cdf = [np.sum(probabilities[:idx+1]) for idx in range(len(probabilities))]
+        # cdf = np.asarray(cdf)
 
         for idp in range(num_parents):
-            if idp <= np.ceil(num_parents * 0.1):
-                parents[idp, :] = population[np.argmin(score), :]
-                score[np.argmin(score)] = np.inf
-            else:
-                score_candidate = np.inf
-                while score_candidate == np.inf:
-                    num_rnd = np.random.uniform()
-                    aux = np.sort(np.append(cdf, num_rnd))
-                    idx = np.where(aux == num_rnd)
-                    if not idx == 0:
-                        idx = idx[0] - 1
-                    score_candidate = score[idx_sort[idx]]
-                parents[idp, :] = population[idx_sort[idx], :]
+            parents[idp, :] = population[np.argmin(score), :]
+            score[np.argmin(score)] = np.inf
 
         return parents
 
-    def crossover(self, parents, offspring_size):
+    def crossover(self, population, offspring_size):
         offspring = np.empty(offspring_size)
 
         for k in range(offspring_size[0]):
             crossover_point = np.random.random_integers(0, offspring_size[1] - 1)
-            parent1_idx = k % parents.shape[0]
-            parent2_idx = (k+1) % parents.shape[0]
-            offspring[k, 0:crossover_point] = parents[parent1_idx, 0:crossover_point]
-            offspring[k, crossover_point:] = parents[parent2_idx, crossover_point:]
+            parent1_idx = np.random.randint(0, population.shape[0])
+            parent2_idx = np.random.randint(0, population.shape[0])
+            offspring[k, 0:crossover_point] = population[parent1_idx, 0:crossover_point]
+            offspring[k, crossover_point:] = population[parent2_idx, crossover_point:]
 
         return offspring
 
