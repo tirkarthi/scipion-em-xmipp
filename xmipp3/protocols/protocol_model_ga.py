@@ -25,6 +25,7 @@
 # *****************************************************************************
 
 import numpy as np
+import sys
 
 from pwem.objects import Volume
 from pwem.protocols import ProtAnalysis3D
@@ -89,6 +90,7 @@ class XmippProtModelGA(ProtAnalysis3D):
             # FIXME: Probably this can be removed
             score_population = self.scorePopulation(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
+            sys.stdout.flush()
 
         print(new_population[score_population.argmin()])
         self.bestIndividual = new_population[score_population.argmin()]
@@ -139,7 +141,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         cdf = np.asarray(cdf)
 
         for idp in range(num_parents):
-            if idp <= np.ceil(num_parents):
+            if idp <= np.ceil(num_parents * 0.1):
                 parents[idp, :] = population[np.argmin(score), :]
                 score[np.argmin(score)] = np.inf
             else:
