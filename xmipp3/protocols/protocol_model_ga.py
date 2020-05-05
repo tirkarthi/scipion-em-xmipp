@@ -76,6 +76,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         new_population = np.random.random_integers(low=1, high=len(self.seqs), size=pop_size)
         num_generations = self.generations.get()
         num_parents = self.parents.get()
+        cMat = self.connectivityMatrix()
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
@@ -134,11 +135,6 @@ class XmippProtModelGA(ProtAnalysis3D):
 
     def matingPool(self, population, score, num_parents):
         parents = np.empty((num_parents, population.shape[1]))
-        # score_inv = 1 / score
-        # idx_sort = np.argsort(score_inv)
-        # probabilities = score_inv[idx_sort] / np.sum(score_inv)
-        # cdf = [np.sum(probabilities[:idx+1]) for idx in range(len(probabilities))]
-        # cdf = np.asarray(cdf)
 
         for idp in range(num_parents):
             parents[idp, :] = population[np.argmin(score), :]
@@ -168,6 +164,30 @@ class XmippProtModelGA(ProtAnalysis3D):
                 offspring[idx, idg_rnd] = float(chain_rnd)
 
         return offspring
+
+    def connectivityMatrix(self):
+        num_regions = len(self.regions_id)
+        cMat = np.zeros(num_regions, num_regions)
+        for idr in range(num_regions):
+            row = self.neighbours(self.regions_id[idr], num_regions)
+            cMat[idr] = row
+        return cMat
+
+    def neighbours(self, region_id, num_regions):
+        voxels = np.asarray(np.where(self.idMask == region_id))
+        row = np.zeros(num_regions)
+        for idv in range(voxels.shape[1]):
+            coords = voxels[:,idv]
+            submat = self.idMask[coords[0]-1:coords[0]+2, coords[1]-1:coords[1]+2, coords[2]-1:coords[2]+2]
+            submat = submat.reshape[1,-1]
+            for id in submat:
+                if id != region_id:
+                    row[id] += 1
+        return row
+
+
+
+
 
     # --------------------------- DEFINE info functions ----------------------
     def _methods(self):
