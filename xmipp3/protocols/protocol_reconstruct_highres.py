@@ -1585,6 +1585,7 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
         fnAngles = join(fnDirCurrent, "angles.xmd")
         fnAnglesQualified = join(fnDirCurrent, "angles_qualified.xmd")
 
+        #TODO: si no tengo maxcc anado esa columna todo a 1
         # Qualify according to CC and COST by defocus groups
         row = getFirstRow(fnAngles)
         if row.containsLabel(xmippLib.MDL_MAXCC) or row.containsLabel(xmippLib.MDL_COST):
@@ -1633,6 +1634,7 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
                 cleanPath("%s/ctf_groups.xmd" % fnDirCurrent)
             moveFile(fnAnglesQualified, fnAngles)
 
+        #TODO: aqui ya deberia poder entrar tras el cambio anterior
         if self.weightCC and (row.containsLabel(xmippLib.MDL_MAXCC_PERCENTILE) or row.containsLabel(xmippLib.MDL_COST_PERCENTILE)):
             mdAngles = xmippLib.MetaData(fnAngles)
             weightCCmin = float(self.weightCCmin.get())
