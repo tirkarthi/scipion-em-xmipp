@@ -85,7 +85,7 @@ class XmippProtExtractMovieParticles(ProtExtractMovieParticles):
                       pointerCondition='hasAlignmentProj',
                       condition='saveAlignment',
                       label='Input aligned particles',
-                      help='Input particles set to save the alignment parameters.')
+                      help='Input set of particles to save the alignment parameters.')
         form.addParam('boxSize', IntParam, default=0,
                       label='Particle box size (px)', validators=[Positive],
                       help='In pixels. The box size is the size of the boxed '

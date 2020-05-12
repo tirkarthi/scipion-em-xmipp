@@ -90,12 +90,12 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                       help='In pixels. The box size is the size of the boxed '
                            'particles, actual particles may be smaller than '
                            'this.')
-        form.addParam('applyAlignment', BooleanParam, default=False,
-                      label='Apply movie alignments to extract?',
-                      help='If the input movies contains frames alignment, '
-                           'you decide whether to use that information '
-                           'for extracting the particles taking into account '
-                           'the shifts between frames.')
+        #form.addParam('applyAlignment', BooleanParam, default=False,
+        #              label='Apply movie alignments to extract?',
+        #              help='If the input movies contains frames alignment, '
+        #                   'you decide whether to use that information '
+        #                   'for extracting the particles taking into account '
+        #                   'the shifts between frames.')
         line = form.addLine('Frames range',
                             help='Specify the frames range to extract particles. '
                                  'The first frame is 1. If you set 0 in the '
@@ -177,12 +177,13 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
             else:
                 newCoord.copyObjId(particle)
                 x, y = coord.getPosition()
-                if inputParticles.hasAlignmentProj() and False: #TODO: check if we need this condition or not, now it seems we dont need it
-		    print("AQUIIII")
-                    shifts = self.getShifts(particle.getTransform(), alignType)
-                    xCoor, yCoor = x - int(shifts[0]), y - int(shifts[1])
-                else:
-                    xCoor, yCoor = x, y
+                #if inputParticles.hasAlignmentProj() and False:
+                ##TODO: check if we need this condition or not, now it seems we dont need it
+                #    shifts = self.getShifts(particle.getTransform(), alignType)
+                #    xCoor, yCoor = x - int(shifts[0]), y - int(shifts[1])
+                #else:
+                #    xCoor, yCoor = x, y
+                xCoor, yCoor = x, y
                 newCoord.setPosition(xCoor * scale, yCoor * scale)
                 newCoord.setMicrograph(mic)
                 coordinateToRow(newCoord, rowCoord)
@@ -197,7 +198,7 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
         frame0, frameN = self._getRange(movie)
         boxSize = self.boxSize.get()
 
-        if movie.hasAlignment() and self.applyAlignment:
+        if movie.hasAlignment():
             shiftX, shiftY = movie.getAlignment().getShifts()  # lists.
         else:
             shiftX = [0] * (lastFrame - iniFrame + 1)
@@ -239,7 +240,7 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                 fnOutFile = self.inputAlignMovieProt.get()._getExtraPath('auxOutputFile.txt')
 
                 try:
-                    #print("YESSSS " + "localAlignment@" + fnAlign)
+                    #print("Applying " + "localAlignment@" + fnAlign)
                     mdAlign = md.MetaData("localAlignment@"+fnAlign)
                     shiftX = [0] * (lastFrame - iniFrame + 1)
                     shiftY = shiftX
@@ -252,7 +253,7 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                     args += " --downsampling %f " % self.getBoxScale()
                     self.runJob('xmipp_micrograph_scissor_2', args)
                 except:
-                    #print("NOOOO " + "localAlignment@"+fnAlign)
+                    #print("No applying " + "localAlignment@"+fnAlign)
                     self._writeXmippPosFile(movie, coordinatesName,
                                             shiftX[indx], shiftY[indx])
                     args = '-i %(frameName)s --pos %(coordinatesName)s ' \
