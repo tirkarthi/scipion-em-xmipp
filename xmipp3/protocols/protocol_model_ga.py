@@ -76,11 +76,11 @@ class XmippProtModelGA(ProtAnalysis3D):
         new_population = np.random.random_integers(low=1, high=len(self.seqs), size=pop_size)
         num_generations = self.generations.get()
         num_parents = self.parents.get()
-        cMat = self.connectivityMatrix()
+        self.cMat = self.connectivityMatrix()
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
-            score_population = self.scorePopulation(new_population)
+            score_population = self.massScore(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
@@ -89,7 +89,7 @@ class XmippProtModelGA(ProtAnalysis3D):
             new_population[parents.shape[0]:, :] = offspring_mutation
 
             # FIXME: Probably this can be removed
-            score_population = self.scorePopulation(new_population)
+            score_population = self.massScore(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
@@ -113,7 +113,7 @@ class XmippProtModelGA(ProtAnalysis3D):
 
 
     # --------------------------- DEFINE utils functions ----------------------
-    def scorePopulation(self, population):
+    def massScore(self, population):
         mean_density_prot = 8.1325e-04  # KDa / (A^3)
         mean_mass_aa = 0.110  # KDa
         sampling_rate = self.inputMask.get().getSamplingRate() ** 3  # A^3 / voxel
@@ -132,6 +132,9 @@ class XmippProtModelGA(ProtAnalysis3D):
                 score_population[idi] += np.abs(submass[idx] - np.sum(map_region_mass[map_regions]))
 
         return score_population
+
+    def connectivityScore(self, population):
+        pass
 
     def matingPool(self, population, score, num_parents):
         parents = np.empty((num_parents, population.shape[1]))
