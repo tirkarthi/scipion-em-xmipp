@@ -31,6 +31,7 @@ from os.path import exists
 import numpy
 from pyworkflow.em.constants import ALIGN_2D, ALIGN_3D, ALIGN_PROJ, ALIGN_NONE
 import pyworkflow.em.metadata as md
+import xmippLib
 
 from pyworkflow.em.convert import ImageHandler
 from pyworkflow.em.protocol import ProtExtractMovieParticles, ProtProcessMovies
@@ -348,12 +349,15 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                 if partIn.hasCTF():
                     ctfModel = partIn.getCTF()
                 idIn = rowIn.getValue(md.MDL_ITEM_ID)
-                shiftXIn = rowIn.getValue(md.MDL_SHIFT_X)
-                shiftYIn = rowIn.getValue(md.MDL_SHIFT_Y)
-                rotIn = rowIn.getValue(md.MDL_ANGLE_ROT)
-                tiltIn = rowIn.getValue(md.MDL_ANGLE_TILT)
-                psiIn = rowIn.getValue(md.MDL_ANGLE_PSI)
-                flipIn = rowIn.getValue(md.MDL_FLIP)
+                shiftXIn = rowIn.getValue(xmippLib.MDL_SHIFT_X)
+                shiftYIn = rowIn.getValue(xmippLib.MDL_SHIFT_Y)
+                rotIn = rowIn.getValue(xmippLib.MDL_ANGLE_ROT)
+                tiltIn = rowIn.getValue(xmippLib.MDL_ANGLE_TILT)
+                psiIn = rowIn.getValue(xmippLib.MDL_ANGLE_PSI)
+                flipIn = rowIn.getValue(xmippLib.MDL_FLIP)
+                ccIn = rowIn.getValue(xmippLib.MDL_MAXCC)
+                costIn = rowIn.getValue(xmippLib.MDL_COST)
+                wIn = rowIn.getValue(xmippLib.MDL_WEIGHT)
 
                 count = 0
                 rowsOutputParts = iterRows(mdOutputParts)
@@ -376,12 +380,15 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                         particleToRow(partOut, rowOutFinal)
                         rowOutFinal.setValue(md.MDL_PARTICLE_ID, long(partId))
                         rowOutFinal.setValue(md.MDL_FRAME_ID, long(frId))
-                        rowOutFinal.setValue(md.MDL_SHIFT_X, shiftXIn)
-                        rowOutFinal.setValue(md.MDL_SHIFT_Y, shiftYIn)
-                        rowOutFinal.setValue(md.MDL_ANGLE_ROT, rotIn)
-                        rowOutFinal.setValue(md.MDL_ANGLE_TILT, tiltIn)
-                        rowOutFinal.setValue(md.MDL_ANGLE_PSI, psiIn)
-                        rowOutFinal.setValue(md.MDL_FLIP, flipIn)
+                        rowOutFinal.setValue(xmippLib.MDL_SHIFT_X, shiftXIn)
+                        rowOutFinal.setValue(xmippLib.MDL_SHIFT_Y, shiftYIn)
+                        rowOutFinal.setValue(xmippLib.MDL_ANGLE_ROT, rotIn)
+                        rowOutFinal.setValue(xmippLib.MDL_ANGLE_TILT, tiltIn)
+                        rowOutFinal.setValue(xmippLib.MDL_ANGLE_PSI, psiIn)
+                        rowOutFinal.setValue(xmippLib.MDL_FLIP, flipIn)
+                        rowOutFinal.setValue(xmippLib.MDL_MAXCC, ccIn)
+                        rowOutFinal.setValue(xmippLib.MDL_COST, costIn)
+                        rowOutFinal.setValue(xmippLib.MDL_WEIGHT, wIn)
                         rowOutFinal.addToMd(mdFinal)
                         count += 1
                         if count == (frameN - frame0 + 1):

@@ -206,7 +206,8 @@ if not getattr(xmippLib, "GHOST_ACTIVATED", False):
         xmippLib.MDL_WEIGHT_SIGNIFICANT,
         xmippLib.MDL_REF,
         xmippLib.MDL_IMAGE_IDX,
-        xmippLib.MDL_MAXCC
+        xmippLib.MDL_MAXCC,
+        xmippLib.MDL_COST
         ]
 
     ANGLES_DICT = OrderedDict([
