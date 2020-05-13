@@ -167,7 +167,7 @@ class XmippProtModelGA(ProtAnalysis3D):
 
     def connectivityMatrix(self):
         num_regions = len(self.regions_id)
-        cMat = np.zeros(num_regions, num_regions)
+        cMat = np.zeros((num_regions, num_regions))
         for idr in range(num_regions):
             row = self.neighbours(self.regions_id[idr], num_regions)
             cMat[idr] = row
@@ -179,10 +179,10 @@ class XmippProtModelGA(ProtAnalysis3D):
         for idv in range(voxels.shape[1]):
             coords = voxels[:,idv]
             submat = self.idMask[coords[0]-1:coords[0]+2, coords[1]-1:coords[1]+2, coords[2]-1:coords[2]+2]
-            submat = submat.reshape[1,-1]
+            submat = submat.reshape(-1)
             for id in submat:
-                if id != region_id:
-                    row[id] += 1
+                if id != region_id and id !=0:
+                    row[int(id-1)] += 1
         return row
 
 
