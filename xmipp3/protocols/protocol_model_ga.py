@@ -71,8 +71,8 @@ class XmippProtModelGA(ProtAnalysis3D):
         sol_per_population = self.population.get()
         self.regions_id = np.unique(np.reshape(self.idMask, (1, -1)))
         self.regions_id = np.delete(self.regions_id, 0)
-        num_regions = len(self.regions_id)
-        pop_size = (sol_per_population, num_regions)
+        self.num_regions = len(self.regions_id)
+        pop_size = (sol_per_population, self.num_regions)
         new_population = np.random.random_integers(low=1, high=len(self.seqs), size=pop_size)
         num_generations = self.generations.get()
         num_parents = self.parents.get()
@@ -82,7 +82,7 @@ class XmippProtModelGA(ProtAnalysis3D):
             print('Generation: ', (generation+1))
             score_population = self.massScore(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
-            offspring_size = (pop_size[0] - parents.shape[0], num_regions)
+            offspring_size = (pop_size[0] - parents.shape[0], self.num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
             offspring_mutation = self.mutation(offspring_crossover)
             new_population[0:parents.shape[0], :] = parents
@@ -133,9 +133,6 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         return score_population
 
-    def connectivityScore(self, population):
-        pass
-
     def matingPool(self, population, score, num_parents):
         parents = np.empty((num_parents, population.shape[1]))
 
@@ -169,16 +166,22 @@ class XmippProtModelGA(ProtAnalysis3D):
         return offspring
 
     def connectivityMatrix(self):
-        num_regions = len(self.regions_id)
-        cMat = np.zeros((num_regions, num_regions))
-        for idr in range(num_regions):
-            row = self.neighbours(self.regions_id[idr], num_regions)
+        voxelsRegion = np.zeros(self.num_regions)
+        cMat = np.zeros((self.num_regions, self.num_regions))
+        for idr in range(self.num_regions):
+            voxelsRegion[idr] = np.sum(self.idMask[idr])
+            row = self.neighbours(self.regions_id[idr])
             cMat[idr] = row
+
+        # Connectivity matrix normalization (Jaccard Index)
+        for idm in range(self.num_regions):
+            for idn in range(self.num_regions):
+                cMat[idm,idn] = 1 - (cMat[idm,idn] / (voxelsRegion[idm] + voxelsRegion[idn]))
         return cMat
 
-    def neighbours(self, region_id, num_regions):
+    def neighbours(self, region_id):
         voxels = np.asarray(np.where(self.idMask == region_id))
-        row = np.zeros(num_regions)
+        row = np.zeros(self.num_regions)
         for idv in range(voxels.shape[1]):
             coords = voxels[:,idv]
             submat = self.idMask[coords[0]-1:coords[0]+2, coords[1]-1:coords[1]+2, coords[2]-1:coords[2]+2]
@@ -188,11 +191,37 @@ class XmippProtModelGA(ProtAnalysis3D):
                     row[int(id-1)] += 1
         return row
 
+    def dijkstraMatrix(self):
+        dMat = np.zeros((self.num_regions, self.num_regions))
+        for idr in range(self.num_regions):
+            row = self.dijkstra(idr)
+            dMat[idr,:] = row
+        return dMat
 
+    def dijkstra(self, src):
+        dist = [sys.maxsize] * self.num_regions
+        dist[src] = 0
+        sptSet = [False] * self.num_regions
 
+        for cout in range(self.num_regions):
+            u = self.minDistance(dist, sptSet)
+            sptSet[u] = True
+            for v in range(self.num_regions):
+                if self.cMat[u][v] > 0 and \
+                        sptSet[v] == False and \
+                        dist[v] > dist[u] + self.cMat[u][v]:
+                    dist[v] = dist[u] + self.cMat[u][v]
+        return np.asarray(dist)
 
+    def minDistance(self, dist, sptSet):
+        min = sys.maxsize
+        for v in range(self.num_regions):
+            if dist[v] < min and sptSet[v] == False:
+                min = dist[v]
+                min_index = v
+        return min_index
 
-    # --------------------------- DEFINE info functions ----------------------
+            # --------------------------- DEFINE info functions ----------------------
     def _methods(self):
         pass
 
