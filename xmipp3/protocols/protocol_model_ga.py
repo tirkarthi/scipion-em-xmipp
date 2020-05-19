@@ -77,6 +77,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         num_generations = self.generations.get()
         num_parents = self.parents.get()
         self.cMat = self.connectivityMatrix()
+        self.dMat = self.dijkstraMatrix()
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
@@ -169,14 +170,15 @@ class XmippProtModelGA(ProtAnalysis3D):
         voxelsRegion = np.zeros(self.num_regions)
         cMat = np.zeros((self.num_regions, self.num_regions))
         for idr in range(self.num_regions):
-            voxelsRegion[idr] = np.sum(self.idMask[idr])
+            voxelsRegion[idr] = np.sum(self.idMask == self.regions_id[idr])
             row = self.neighbours(self.regions_id[idr])
             cMat[idr] = row
 
         # Connectivity matrix normalization (Jaccard Index)
         for idm in range(self.num_regions):
             for idn in range(self.num_regions):
-                cMat[idm,idn] = 1 - (cMat[idm,idn] / (voxelsRegion[idm] + voxelsRegion[idn]))
+                sumVoxels = voxelsRegion[idm] + voxelsRegion[idn]
+                cMat[idm,idn] = (cMat[idm,idn] / sumVoxels)
         return cMat
 
     def neighbours(self, region_id):
