@@ -907,25 +907,30 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
                                         (fnGroup,fnAnglesGroup,fnGalleryGroupMd,TsCurrent,fnDirSignificant,self.numberOfMpi.get()*self.numberOfThreads.get(),angleStep,maxShift,self.symmetryGroup)
                                     self.runJob('xmipp_angular_assignment_mag',args,numberOfMpi=self.numberOfMpi.get()*self.numberOfThreads.get())
                             else:
-                                count=0
-                                GpuListCuda=''
-                                if self.useQueueForSteps() or self.useQueue():
-                                    GpuList = os.environ["CUDA_VISIBLE_DEVICES"]
-                                    GpuList = GpuList.split(",")
-                                    for elem in GpuList:
-                                        GpuListCuda = GpuListCuda+str(count)+' '
-                                        count+=1
+                                if self.globalMethod.get() == self.GLOBAL_ANG_ASSIGNMENT_MAG:
+                                    args='-i %s -o %s -ref %s -sampling %f -odir %s --Nsimultaneous %d -angleStep %f --maxShift %f --sym %s'%\
+                                        (fnGroup,fnAnglesGroup,fnGalleryGroupMd,TsCurrent,fnDirSignificant,self.numberOfMpi.get()*self.numberOfThreads.get(),angleStep,maxShift,self.symmetryGroup)
+                                    self.runJob('xmipp_angular_assignment_mag',args,numberOfMpi=self.numberOfMpi.get()*self.numberOfThreads.get())
                                 else:
-                                    GpuList = ' '.join([str(elem) for elem in self.getGpuList()])
-                                    GpuListAux = ''
-                                    for elem in self.getGpuList():
-                                        GpuListCuda = GpuListCuda+str(count)+' '
-                                        GpuListAux = GpuListAux+str(elem)+','
-                                        count+=1
-                                    os.environ["CUDA_VISIBLE_DEVICES"] = GpuListAux
-                                args = '-i %s -r %s -o %s --keepBestN %f --dev %s ' % \
-                                       (fnGroup, fnGalleryGroupMd, fnAnglesGroup,self.numberOfReplicates.get(), GpuListCuda)
-                                self.runJob("xmipp_cuda_align_significant",args, numberOfMpi=1)
+                                    count=0
+                                    GpuListCuda=''
+                                    if self.useQueueForSteps() or self.useQueue():
+                                        GpuList = os.environ["CUDA_VISIBLE_DEVICES"]
+                                        GpuList = GpuList.split(",")
+                                        for elem in GpuList:
+                                            GpuListCuda = GpuListCuda+str(count)+' '
+                                            count+=1
+                                    else:
+                                        GpuList = ' '.join([str(elem) for elem in self.getGpuList()])
+                                        GpuListAux = ''
+                                        for elem in self.getGpuList():
+                                            GpuListCuda = GpuListCuda+str(count)+' '
+                                            GpuListAux = GpuListAux+str(elem)+','
+                                            count+=1
+                                        os.environ["CUDA_VISIBLE_DEVICES"] = GpuListAux
+                                    args = '-i %s -r %s -o %s --keepBestN %f --dev %s ' % \
+                                            (fnGroup, fnGalleryGroupMd, fnAnglesGroup,self.numberOfReplicates.get(), GpuListCuda)
+                                    self.runJob("xmipp_cuda_align_significant",args, numberOfMpi=1)
 
                             if exists(fnAnglesGroup):
                                 if not exists(fnAngles) and exists(fnAnglesGroup):
