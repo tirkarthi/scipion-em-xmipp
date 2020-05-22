@@ -88,6 +88,9 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
     AUTOMATIC_ALIGNMENT = 2
     STOCHASTIC_ALIGNMENT = 3
 
+    GLOBAL_SIGNIFICANT = 0
+    GLOBAL_ANG_ASSIGNMENT_MAG = 1
+
     # --------------------------- DEFINE param functions --------------------------------------------
     def _defineParams(self, form):
         form.addHidden(USE_GPU, BooleanParam, default=True,
@@ -190,6 +193,9 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
         line.addParam('angularMaxTiltReconstruct', FloatParam, label="Max.", default=92, condition="restrictReconstructionAngles",
                       help = "Perform an angular assignment and only use those images whose angles are within these limits")
 
+        form.addParam('globalMethod', EnumParam, label="Global alignment method", choices=['Significant','Fourier magnitude based'],
+                      default=self.GLOBAL_SIGNIFICANT, condition='alignmentMethod==0 or alignmentMethod==2',
+                      expertLevel=LEVEL_ADVANCED)
         form.addParam('maximumTargetResolution', NumericListParam,
                       label="Max. Target Resolution", default="15 8 4",
                       condition='multiresolution',
@@ -885,16 +891,21 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
                                 R = self.inputParticles.get().getDimensions()[0] / 2
                             R = R * self.TsOrig / TsCurrent
                             if not self.useGpu.get():
-                                args = '-i %s --initgallery %s --maxShift %d --odir %s --dontReconstruct --useForValidation %d --dontCheckMirrors ' % \
-                                       (fnGroup, fnGalleryGroupMd, maxShift,fnDirSignificant,self.numberOfReplicates.get() - 1)
-                                self.runJob('xmipp_reconstruct_significant',args,numberOfMpi=self.numberOfMpi.get())
-                                # moveFile(join(fnDirSignificant,"images_significant_iter001_00.xmd"),join(fnDirSignificant,"angles_group%03d%s.xmd"%(j,subset)))
-                                fnAnglesSignificant = join(fnDirSignificant,"angles_iter001_00.xmd")
-                                if exists(fnAnglesSignificant):
-                                    moveFile(fnAnglesSignificant, fnAnglesGroup)
-                                    cleanPath(join(fnDirSignificant,"images_iter001_00.xmd"))
-                                    # cleanPath(join(fnDirSignificant,"angles_iter001_00.xmd"))
-                                    cleanPath(join(fnDirSignificant,"images_significant_iter001_00.xmd"))
+                                if self.globalMethod.get() == self.GLOBAL_SIGNIFICANT:
+                                    args = '-i %s --initgallery %s --maxShift %d --odir %s --dontReconstruct --useForValidation %d --dontCheckMirrors ' % \
+                                            (fnGroup, fnGalleryGroupMd, maxShift,fnDirSignificant,self.numberOfReplicates.get() - 1)
+                                    self.runJob('xmipp_reconstruct_significant',args,numberOfMpi=self.numberOfMpi.get())
+                                    # moveFile(join(fnDirSignificant,"images_significant_iter001_00.xmd"),join(fnDirSignificant,"angles_group%03d%s.xmd"%(j,subset)))
+                                    fnAnglesSignificant = join(fnDirSignificant,"angles_iter001_00.xmd")
+                                    if exists(fnAnglesSignificant):
+                                        moveFile(fnAnglesSignificant, fnAnglesGroup)
+                                        cleanPath(join(fnDirSignificant,"images_iter001_00.xmd"))
+                                        # cleanPath(join(fnDirSignificant,"angles_iter001_00.xmd"))
+                                        cleanPath(join(fnDirSignificant,"images_significant_iter001_00.xmd"))
+                                elif self.globalMethod.get() == self.GLOBAL_ANG_ASSIGNMENT_MAG: 
+                                    args='-i %s -o %s -ref %s -sampling %f -odir %s --Nsimultaneous %d -angleStep %f --maxShift %f --sym %s'%\
+                                        (fnGroup,fnAnglesGroup,fnGalleryGroupMd,TsCurrent,fnDirSignificant,self.numberOfMpi.get()*self.numberOfThreads.get(),angleStep,maxShift,self.symmetryGroup)
+                                    self.runJob('xmipp_angular_assignment_mag',args,numberOfMpi=self.numberOfMpi.get()*self.numberOfThreads.get())
                             else:
                                 count=0
                                 GpuListCuda=''
