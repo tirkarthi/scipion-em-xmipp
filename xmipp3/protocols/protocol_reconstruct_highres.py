@@ -902,7 +902,7 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
                                         cleanPath(join(fnDirSignificant,"images_iter001_00.xmd"))
                                         # cleanPath(join(fnDirSignificant,"angles_iter001_00.xmd"))
                                         cleanPath(join(fnDirSignificant,"images_significant_iter001_00.xmd"))
-                                elif self.globalMethod.get() == self.GLOBAL_ANG_ASSIGNMENT_MAG: 
+                                elif self.globalMethod.get() == self.GLOBAL_ANG_ASSIGNMENT_MAG:
                                     args='-i %s -o %s -ref %s -sampling %f -odir %s --Nsimultaneous %d -angleStep %f --maxShift %f --sym %s'%\
                                         (fnGroup,fnAnglesGroup,fnGalleryGroupMd,TsCurrent,fnDirSignificant,self.numberOfMpi.get()*self.numberOfThreads.get(),angleStep,maxShift,self.symmetryGroup)
                                     self.runJob('xmipp_angular_assignment_mag',args,numberOfMpi=self.numberOfMpi.get()*self.numberOfThreads.get())
@@ -1686,4 +1686,3 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
             if self.postSymmetryHelical:
                 strline+="Finally, we imposed helical symmetry. "
         return [strline]
-
