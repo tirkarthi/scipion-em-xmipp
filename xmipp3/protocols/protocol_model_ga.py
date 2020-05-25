@@ -82,6 +82,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
             score_population = self.massScore(new_population)
+            # score_population = self.connectivityScore(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], self.num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
@@ -91,6 +92,7 @@ class XmippProtModelGA(ProtAnalysis3D):
 
             # FIXME: Probably this can be removed
             score_population = self.massScore(new_population)
+            # score_population = self.connectivityScore(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
@@ -127,12 +129,33 @@ class XmippProtModelGA(ProtAnalysis3D):
         map_region_mass = np.asarray(map_region_mass)
 
         score_population = np.zeros(len(population))
-        for idx in range((len(self.seqs)-1)):
+        for idx in range((len(self.seqs))):
             for idi, individual in enumerate(population):
                 map_regions = np.where(individual == (idx + 1))
                 score_population[idi] += np.abs(submass[idx] - np.sum(map_region_mass[map_regions]))
 
         return score_population
+
+    def connectivityScore(self, population):
+        score_population = np.zeros(len(population))
+        for idx in range((len(self.seqs))):
+            for idi, individual in enumerate(population):
+                chain_regions = np.where(individual == (idx + 1))
+                score = self.connectivityMap(chain_regions[0])
+                score_population[idi] += score
+
+        return score_population
+
+    def connectivityMap(self, chain_regions):
+        score = 0
+        for idm in range(len(chain_regions)):
+            min_dist = np.inf
+            for idn in range(len(chain_regions)):
+                if idm != idn and self.dMat[idm,idn] < min_dist:
+                    min_dist = self.dMat[idm,idn]
+            score += min_dist
+
+        return score
 
     def matingPool(self, population, score, num_parents):
         parents = np.empty((num_parents, population.shape[1]))
