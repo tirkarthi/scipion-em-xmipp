@@ -26,6 +26,7 @@
 
 import numpy as np
 import sys
+from itertools import combinations
 
 from pwem.objects import Volume
 from pwem.protocols import ProtAnalysis3D
@@ -81,8 +82,8 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
-            score_population = self.massScore(new_population)
-            # score_population = self.connectivityScore(new_population)
+            # score_population = self.massScore(new_population)
+            score_population = self.connectivityScore(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], self.num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
@@ -91,8 +92,8 @@ class XmippProtModelGA(ProtAnalysis3D):
             new_population[parents.shape[0]:, :] = offspring_mutation
 
             # FIXME: Probably this can be removed
-            score_population = self.massScore(new_population)
-            # score_population = self.connectivityScore(new_population)
+            # score_population = self.massScore(new_population)
+            score_population = self.connectivityScore(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
@@ -138,22 +139,44 @@ class XmippProtModelGA(ProtAnalysis3D):
 
     def connectivityScore(self, population):
         score_population = np.zeros(len(population))
-        for idx in range((len(self.seqs))):
-            for idi, individual in enumerate(population):
+        for idi, individual in enumerate(population):
+            # score = 0
+            score = np.zeros(len(self.seqs))
+            for idx in range(len(self.seqs)):
                 chain_regions = np.where(individual == (idx + 1))
-                score = self.connectivityMap(chain_regions[0])
-                score_population[idi] += score
+                # aux = len(chain_regions[0])
+                # FIXME: Impedir que se tienda a coger solo una cadena
+                # if aux == 0:
+                #     score_population[idi] += np.inf
+                # else:
+                #     score += self.connectivityMap(chain_regions[0])
+                score[idx] = self.connectivityMap(chain_regions[0])
+            # aux = [np.abs(x-y) for x, y in combinations(score, 2)]
+            score_population[idi] = sum(score) #+ sum(aux)
 
         return score_population
 
     def connectivityMap(self, chain_regions):
         score = 0
-        for idm in range(len(chain_regions)):
+        # for idm in range(len(chain_regions)):
+        #     min_dist = np.inf
+        #     for idn in range(len(chain_regions)):
+        #         aux = self.dMat[chain_regions[idm],chain_regions[idn]]
+        #         if idm != idn and aux < min_dist:
+        #             min_dist = aux
+        #     score += min_dist
+
+        # TODO: Coger caminos de longitud parecida para cada cadena
+        size = len(chain_regions)
+        connected = np.zeros(size)
+        for idx in range(size - 1):
             min_dist = np.inf
-            for idn in range(len(chain_regions)):
-                if idm != idn and self.dMat[idm,idn] < min_dist:
-                    min_dist = self.dMat[idm,idn]
+            for idy in range(size):
+                aux = self.dMat[chain_regions[idx],chain_regions[idy]]
+                if idx != idy and aux < min_dist and connected[idy] == 0:
+                    min_dist = aux
             score += min_dist
+            connected[idx] = 1
 
         return score
 
@@ -197,11 +220,11 @@ class XmippProtModelGA(ProtAnalysis3D):
             row = self.neighbours(self.regions_id[idr])
             cMat[idr] = row
 
-        # Connectivity matrix normalization (Jaccard Index)
+        # Connectivity matrix normalization (Dice coefficient)
         for idm in range(self.num_regions):
             for idn in range(self.num_regions):
                 sumVoxels = voxelsRegion[idm] + voxelsRegion[idn]
-                cMat[idm,idn] = (cMat[idm,idn] / sumVoxels)
+                cMat[idm,idn] = 1 - (2 * cMat[idm,idn] / sumVoxels)
         return cMat
 
     def neighbours(self, region_id):
