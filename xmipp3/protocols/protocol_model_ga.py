@@ -70,7 +70,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         self.idMask = np.squeeze(self.idMask)
 
         sol_per_population = self.population.get()
-        self.regions_id = np.unique(np.reshape(self.idMask, (1, -1)))
+        self.regions_id = np.unique(np.reshape(self.idMask, -1))
         self.regions_id = np.delete(self.regions_id, 0)
         self.num_regions = len(self.regions_id)
         pop_size = (sol_per_population, self.num_regions)
@@ -157,7 +157,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         return score_population
 
     def connectivityMap(self, chain_regions):
-        score = 0
+        # score = 0
         # for idm in range(len(chain_regions)):
         #     min_dist = np.inf
         #     for idn in range(len(chain_regions)):
@@ -167,6 +167,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         #     score += min_dist
 
         # TODO: Coger caminos de longitud parecida para cada cadena
+        score = 0
         size = len(chain_regions)
         connected = np.zeros(size)
         for idx in range(size - 1):
@@ -216,8 +217,10 @@ class XmippProtModelGA(ProtAnalysis3D):
         voxelsRegion = np.zeros(self.num_regions)
         cMat = np.zeros((self.num_regions, self.num_regions))
         for idr in range(self.num_regions):
-            voxelsRegion[idr] = np.sum(self.idMask == self.regions_id[idr])
-            row = self.neighbours(self.regions_id[idr])
+            # voxelsRegion[idr] = np.sum(self.idMask == self.regions_id[idr])
+            # row = self.neighbours(self.regions_id[idr])
+            row, boundary_voxels = self.neighbours(self.regions_id[idr])
+            voxelsRegion[idr] = boundary_voxels
             cMat[idr] = row
 
         # Connectivity matrix normalization (Dice coefficient)
@@ -228,16 +231,21 @@ class XmippProtModelGA(ProtAnalysis3D):
         return cMat
 
     def neighbours(self, region_id):
+        boundary_voxels = 0
         voxels = np.asarray(np.where(self.idMask == region_id))
         row = np.zeros(self.num_regions)
         for idv in range(voxels.shape[1]):
+            check_bv = False
             coords = voxels[:,idv]
             submat = self.idMask[coords[0]-1:coords[0]+2, coords[1]-1:coords[1]+2, coords[2]-1:coords[2]+2]
             submat = submat.reshape(-1)
             for id in submat:
                 if id != region_id and id !=0:
+                    check_bv = True
                     row[int(id-1)] += 1
-        return row
+            if check_bv:
+                boundary_voxels += 1
+        return row, boundary_voxels
 
     def dijkstraMatrix(self):
         dMat = np.zeros((self.num_regions, self.num_regions))
