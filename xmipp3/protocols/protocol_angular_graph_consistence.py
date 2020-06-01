@@ -52,7 +52,7 @@ class XmippProtAngularGraphConsistence(ProtAnalysis3D):
     """
     Performs soft alignment validation of a set of particles previously aligned
     confronting them using Graph filtered correlations representation. This
-    protocol producesan histogram with to groups of particles.
+    protocol produces an histogram with two groups of particles.
     """
     _label = 'angular graph consistence'
 
@@ -259,17 +259,71 @@ class XmippProtAngularGraphConsistence(ProtAnalysis3D):
         imgSet = self.inputParticles.get()
         imgSetOut = self._createSetOfParticles()
         imgSetOut.copyInfo(imgSet)
+        imgSetOut.setAlignmentProj()
         imgSetOut.copyItems(imgSet,
-                            updateItemCallback=self._setWeight,
+                            updateItemCallback=self._updateParticle,
                             itemDataIterator=md.iterRows(fnAngles,
-                                                         sortByLabel=md.MDL_ITEM_ID) ) 
+                                                         sortByLabel=md.MDL_ITEM_ID) )
         self._defineOutputs(outputParticles=imgSetOut)
         self._defineSourceRelation(self.inputParticles, imgSetOut)
         self.createPlot2D(fnAngles)
         cleanPattern(self._getExtraPath("scaled_particles.*"))
         cleanPattern(self._getExtraPath("corrected_ctf_particles.*"))
-        cleanPattern(self._getExtraPath("volume.vol"))        
+        cleanPattern(self._getExtraPath("volume.vol"))
+
+    def _updateParticle(self, item, row):
+        setXmippAttributes(item, row, md.MDL_ANGLE_ROT, md.MDL_ANGLE_TILT,
+                           md.MDL_ANGLE_PSI, md.MDL_SHIFT_X, md.MDL_SHIFT_Y,
+                           md.MDL_MAXCC, md.MDL_WEIGHT,
+                           md.MDL_ANGULAR_GRAPHCONSISTENCE)
+        createItemMatrix(item, row, align=ALIGN_PROJ)
+        
+    def createPlot2D(self, fnAngles):
+        mdParticles = emlib.MetaData(fnAngles)
+        
+        ccList = mdParticles.getColumnValues(emlib.MDL_MAXCC)
+        graphConsistList = mdParticles.getColumnValues(emlib.MDL_ANGULAR_GRAPHCONSISTENCE)
+        
+        # threshold
+        th_gsp = self.otsu(graphConsistList)
+        th_cc = self.otsu(ccList)
+        
+        cont_gsp = 0        
+        cont_cc = 0
+        total = 0
+        for objId in mdParticles:
+            total += 1
+            if ( mdParticles.getValue(emlib.MDL_ANGULAR_GRAPHCONSISTENCE, objId) > th_gsp ):
+                cont_gsp += 1
+            if ( mdParticles.getValue(emlib.MDL_MAXCC, objId) > th_cc ):
+                cont_cc += 1
+        # percentage of images in reliable assignment zone
+        p_gsp = cont_gsp/total * 100
+        p_cc = cont_cc/total * 100
+        
+        parameterFile = self._getExtraPath('parameter.txt')
+        fh = open(parameterFile, "w")
+        fh.write("%.2f" % p_gsp)
+        fh.close()
                 
+        figurePath = self._getExtraPath('graphConsistenceHistogram.png')
+        figureSize = (8, 6)
+        plotter = Plotter(*figureSize)
+        figure = plotter.getFigure()
+        ax = figure.add_subplot(111)
+        ax.set_title('Histogram - Soft alignment validation')
+        ax.set_xlabel('Modified cross-correlation based on GSP')
+        ax.set_ylabel('Num. of images')
+        lb = '%.2f'%p_gsp
+        lb += r'$\%$ images are in the reliable assignment zone'
+        # histogram
+        ax.hist(graphConsistList, bins=50, label=lb)
+        ax.legend()
+        ax.autoscale_view(True, True, True)
+        plotter.savefig(figurePath)
+        plotter.show()
+        return plotter
+     
     # --------------------------- INFO functions --------------------------------------------
     def _validate(self):
         validateMsgs = []
@@ -303,28 +357,16 @@ class XmippProtAngularGraphConsistence(ProtAnalysis3D):
     def _methods(self):
         messages = []
         if (hasattr(self, 'outputParticles')):
-            messages.append('The quality parameter(s) has been obtained using '
-                            'the approach [xxxxx] with angular sampling '
-                            'of %f and number of orientations of %f' % (
-                            self.angularSampling.get(),
-                            self.numOrientations.get()))
+            messages.append('correlation values of previous alignment process'
+                            ' are modified according to the spherical distance from'
+                            ' the assigned direction to a soft and high-valued correlation zone'
+                            ' of neighboring projection directions')
         return messages
 
     def _citations(self):
         return ['xxxxx']
 
     # --------------------------- UTILS functions --------------------------------------------
-    def _setWeight(self, item, row):
-        item._xmipp_angleRot = Float( row.getValue(md.MDL_ANGLE_ROT) )
-        item._xmipp_angleTilt = Float( row.getValue(md.MDL_ANGLE_TILT) )
-        item._xmipp_anglePsi = Float( row.getValue(md.MDL_ANGLE_PSI) )
-        item._xmipp_shiftX = Float( row.getValue(md.MDL_SHIFT_X) )
-        item._xmipp_shiftY = Float( row.getValue(md.MDL_SHIFT_Y) )
-        item._xmipp_maxCC = Float( row.getValue(md.MDL_MAXCC) )
-        item._xmipp_weight = Float( row.getValue(md.MDL_WEIGHT) )
-        item._xmipp_angularGraphConsistence = Float(
-            row.getValue(md.MDL_ANGULAR_GRAPHCONSISTENCE))
-        
     def _getVolDir(self, volIndex):
         return self._getTmpPath('vol%03d' % volIndex)
 
@@ -343,57 +385,6 @@ class XmippProtAngularGraphConsistence(ProtAnalysis3D):
             for vol in inputVols:
                 yield vol
             
-    def createPlot2D(self, fnAngles):
-        mdParticles = emlib.MetaData(fnAngles)
-        
-        ccList = mdParticles.getColumnValues(emlib.MDL_MAXCC)
-        graphConsistList = mdParticles.getColumnValues(emlib.MDL_ANGULAR_GRAPHCONSISTENCE)
-        
-        # threshold
-        th_gsp = self.otsu(graphConsistList)
-        th_cc = self.otsu(ccList)
-        
-        cont_gsp = 0        
-        cont_cc = 0
-        total = 0
-        for objId in mdParticles:
-            total += 1
-            if ( mdParticles.getValue(emlib.MDL_ANGULAR_GRAPHCONSISTENCE, objId) > th_gsp ):
-                cont_gsp += 1
-            if ( mdParticles.getValue(emlib.MDL_MAXCC, objId) > th_cc ):
-                cont_cc += 1
-        # percentage of images in reliable assignment zone
-        p_gsp = cont_gsp/total * 100
-        p_cc = cont_cc/total * 100
-        
-        parameterFile = self._getExtraPath('parameter.txt')
-        fh = open(parameterFile, "w")
-        fh.write("%.2f" % p_gsp)
-        fh.close()
-                
-        figurePath = self._getExtraPath('graphConsistenceHistogram.png')
-        figureSize = (8, 6)
-
-        # alignedMovie = mic.alignMetaData
-        plotter = Plotter(*figureSize)
-        figure = plotter.getFigure()
-
-        ax = figure.add_subplot(111)
-        ax.set_title('Soft alignment validation histogram')
-        ax.set_xlabel('spherical distance modified cross-correlation')
-        
-        lb = '%.1f'%p_gsp
-        lb += r'$\%$ images over'
-        lb += ' threshold %.3f'%th_gsp
-        # histogram
-        ax.hist(graphConsistList, bins=50, label=lb)
-        ax.legend()
-        ax.autoscale_view(True, True, True)
-
-        plotter.savefig(figurePath)
-        plotter.show()
-        return plotter
-        
     def otsu(self, ccList):
         # method from golden highres
         import numpy as np

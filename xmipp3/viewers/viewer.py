@@ -46,6 +46,7 @@ from xmipp3.protocols import XmippProtScreenParticles
 from xmipp3.protocols import XmippProtCTFMicrographs
 from xmipp3.protocols import XmippProtValidateNonTilt
 from xmipp3.protocols import XmippProtMultiRefAlignability
+from xmipp3.protocols import XmippProtAngularGraphConsistence
 from xmipp3.protocols import XmippProtAssignmentTiltPair
 from xmipp3.protocols import XmippProtMovieGain
 from xmipp3.protocols import XmippProtDeepDenoising
@@ -73,6 +74,7 @@ class XmippViewer(DataViewer):
                 XmippProtValidateNonTilt,
                 XmippProtAssignmentTiltPair,
                 XmippProtMultiRefAlignability,
+                XmippProtAngularGraphConsistence,
                 XmippProtMovieGain,
                 XmippProtDeepDenoising,
                 XmippProtParticleBoxsize
@@ -323,6 +325,35 @@ class XmippViewer(DataViewer):
             plotter.plotMdFile(md, emlib.MDL_SCORE_BY_ALIGNABILITY_PRECISION,
                                emlib.MDL_SCORE_BY_ALIGNABILITY_ACCURACY,
                                marker='.', markersize=.55, color='red', linestyle='')
+            self._views.append(plotter)
+            
+        elif issubclass(cls, XmippProtAngularGraphConsistence):
+            fn = obj.outputParticles.getFileName()
+            labels = ('id enabled _index _filename _xmipp_GraphConsistenceValidation '
+                      '_xmipp_maxCC _xmipp_weight')
+            labelRender = "_filename"
+            self._views.append(ObjectView(self._project, obj.outputParticles.strId(), fn,
+                                          viewParams={ORDER: labels,
+                                                      VISIBLE: labels,
+                                                      SORT_BY: '_xmipp_GraphConsistenceValidation desc',
+                                                      RENDER: labelRender,
+                                                      MODE: MODE_MD}))
+
+            fn = obj._getExtraPath('anglesOutput.xmd')
+            md = emlib.MetaData(fn)
+            plotter = XmippPlotter()
+            plotter.createSubPlot('Histogram - Soft alignment validation',
+                                  'Modified cross-correlation based on GSP', 'Num. of images')
+            plotter.plotMdFile(md, emlib.MDL_MAXCC,
+                               emlib.MDL_ANGULAR_GRAPHCONSISTENCE, nbins=50, color='orange')
+            parameterFile = obj._getExtraPath('parameter.txt')
+            fh = open(parameterFile, "r")
+            val = fh.readline()
+            fh.close()
+            lb = '%s'%val
+            lb += r'$\%$ are in the reliable assignment zone'
+            tup = (lb,)
+            plotter.showLegend(tup)
             self._views.append(plotter)
 
         elif issubclass(cls, XmippProtExtractParticlesPairs):
