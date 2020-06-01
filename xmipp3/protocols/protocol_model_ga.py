@@ -82,8 +82,8 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
-            # score_population = self.massScore(new_population)
-            score_population = self.connectivityScore(new_population)
+            score_population = self.massScore(new_population)
+            # score_population = self.connectivityScore(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], self.num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
@@ -92,8 +92,8 @@ class XmippProtModelGA(ProtAnalysis3D):
             new_population[parents.shape[0]:, :] = offspring_mutation
 
             # FIXME: Probably this can be removed
-            # score_population = self.massScore(new_population)
-            score_population = self.connectivityScore(new_population)
+            score_population = self.massScore(new_population)
+            # score_population = self.connectivityScore(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
@@ -125,9 +125,11 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
         submass = np.asarray(submass)
+        submass /= np.sum(submass)
 
         map_region_mass = [mean_density_prot * np.sum(self.idMask[self.idMask == idr]) / idr for idr in self.regions_id]
         map_region_mass = np.asarray(map_region_mass)
+        map_region_mass /= np.sum(map_region_mass)
 
         score_population = np.zeros(len(population))
         for idx in range((len(self.seqs))):
