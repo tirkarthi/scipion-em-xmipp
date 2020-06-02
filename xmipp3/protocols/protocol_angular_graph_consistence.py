@@ -61,15 +61,6 @@ class XmippProtAngularGraphConsistence(ProtAnalysis3D):
 
     # --------------------------- DEFINE param functions --------------------------------------------
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
-                       label="Use GPU for execution",
-                       help="This protocol has both CPU and GPU implementation.\
-                       Select the one you want to use.")
-
-        form.addHidden(GPU_LIST, StringParam, default='0',
-                       expertLevel=LEVEL_ADVANCED,
-                       label="Choose GPU IDs",
-                       help="Add a list of GPU devices that can be used")
 
         form.addSection(label='Input')
         form.addParam('inputVolumes', PointerParam, pointerClass='Volume',
@@ -84,25 +75,14 @@ class XmippProtAngularGraphConsistence(ProtAnalysis3D):
                       label="Symmetry group",
                       help='See [[Xmipp Symmetry][http://www2.mrc-lmb.cam.ac.uk/Xmipp/index.php/Conventions_%26_File_formats#Symmetry]] page '
                            'for a description of the symmetry format accepted by Xmipp')
-        form.addParam('angularSampling', FloatParam, default=5,
+        form.addParam('angularSampling', FloatParam, default=3,
                       expertLevel=LEVEL_ADVANCED,
                       label="Angular Sampling (degrees)",
                       help='Angular distance (in degrees) between neighboring projection points ')
-        form.addParam('numOrientations', FloatParam, default=7,
-                      expertLevel=LEVEL_ADVANCED,
-                      label="Number of Orientations for particle",
-                      help='Parameter to define the number of most similar volume \n'
-                           '    projected images for each projection image')
         form.addParam('doNotUseWeights', BooleanParam, default=False,
                       expertLevel=LEVEL_ADVANCED,
                       label="Do not use the weights",
                       help='Do not use the weights in the clustering calculation')
-        form.addParam('pseudoSymmetryGroup', StringParam, default='',
-                      expertLevel=LEVEL_ADVANCED,
-                      label="Pseudo symmetry group",
-                      help='Add only in case the map is close to a symmetry different and more restrict than the one reported in the parameter Symmetry group.'
-                           'See [[Xmipp Symmetry][http://www2.mrc-lmb.cam.ac.uk/Xmipp/index.php/Conventions_%26_File_formats#Symmetry]] page '
-                           'for a description of the symmetry format accepted by Xmipp')
         form.addParam('minTilt', FloatParam, default=0,
                       expertLevel=LEVEL_ADVANCED,
                       label="Minimum allowed tilt angle",
@@ -322,6 +302,24 @@ class XmippProtAngularGraphConsistence(ProtAnalysis3D):
         ax.autoscale_view(True, True, True)
         plotter.savefig(figurePath)
         plotter.show()
+        
+        # histogram of angular_assignment_mag
+        figurePath2 = self._getExtraPath('ccMaxHistogram.png')
+        figureSize2 = (8, 6)
+        plotter2 = Plotter(*figureSize2)
+        figure2 = plotter2.getFigure()
+        ax2 = figure2.add_subplot(111)
+        ax2.set_title('Histogram - Soft alignment validation')
+        ax2.set_xlabel('Modified cross-correlation based on GSP')
+        ax2.set_ylabel('Num. of images')
+        lb = '%.2f'%p_cc
+        lb += r'$\%$ images are in the reliable assignment zone'
+        # histogram
+        ax2.hist(ccList, bins=50, label=lb)
+        ax2.legend()
+        ax2.autoscale_view(True, True, True)
+        plotter2.savefig(figurePath2)
+        
         return plotter
      
     # --------------------------- INFO functions --------------------------------------------
