@@ -81,8 +81,8 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
-            # score_population = self.massScore(new_population)
-            score_population = self.connectivityScore(new_population)
+            score_population = self.massScore(new_population)
+            score_population += self.connectivityScore(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], self.num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
@@ -91,8 +91,8 @@ class XmippProtModelGA(ProtAnalysis3D):
             new_population[parents.shape[0]:, :] = offspring_mutation
 
             # FIXME: Probably this can be removed
-            # score_population = self.massScore(new_population)
-            score_population = self.connectivityScore(new_population)
+            score_population = self.massScore(new_population)
+            score_population += self.connectivityScore(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
@@ -148,7 +148,7 @@ class XmippProtModelGA(ProtAnalysis3D):
                 dMat = self.dijkstraMatrix(chain_regions[0])
                 score[idx] = self.connectivityMap(chain_regions[0], dMat)
             # aux = [np.abs(x-y) for x, y in combinations(score, 2)]
-            score_population[idi] = sum(score) #+ sum(aux)
+            score_population[idi] = sum(score) / self.num_regions #+ sum(aux)
 
         return score_population
 
@@ -162,7 +162,6 @@ class XmippProtModelGA(ProtAnalysis3D):
                     min_dist = aux
             score += min_dist
 
-        # # TODO: Coger caminos de longitud parecida para cada cadena
         # score = 0
         # size = len(chain_regions)
         # connected = np.zeros(size)
@@ -273,7 +272,7 @@ class XmippProtModelGA(ProtAnalysis3D):
                 min_index = v
         return min_index
 
-            # --------------------------- DEFINE info functions ----------------------
+    # --------------------------- DEFINE info functions ----------------------
     def _methods(self):
         pass
 
