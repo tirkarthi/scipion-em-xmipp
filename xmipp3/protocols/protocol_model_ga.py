@@ -61,8 +61,8 @@ class XmippProtModelGA(ProtAnalysis3D):
         self._insertFunctionStep('createOutputStep')
 
     def geneticAlgorithm(self):
-        import time
-        time.sleep(10)
+        # import time
+        # time.sleep(10)
         ih = ImageHandler()
         self.seqs = [seq.get().getSequence() for seq in self.inputSeqs]
         self.seqs = np.asarray(self.seqs)
@@ -81,8 +81,8 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
-            # score_population = self.massScore(new_population)
-            score_population = self.connectivityScore(new_population)
+            score_population = self.massScore(new_population)
+            score_population += self.connectivityScore(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], self.num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
@@ -91,8 +91,8 @@ class XmippProtModelGA(ProtAnalysis3D):
             new_population[parents.shape[0]:, :] = offspring_mutation
 
             # FIXME: Probably this can be removed
-            # score_population = self.massScore(new_population)
-            score_population = self.connectivityScore(new_population)
+            score_population = self.massScore(new_population)
+            score_population += self.connectivityScore(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
@@ -147,8 +147,7 @@ class XmippProtModelGA(ProtAnalysis3D):
                 chain_regions = np.where(individual == (idx + 1))
                 dMat = self.dijkstraMatrix(chain_regions[0])
                 score[idx] = self.connectivityMap(chain_regions[0], dMat)
-            # aux = [np.abs(x-y) for x, y in combinations(score, 2)]
-            score_population[idi] = sum(score) #/ self.num_regions #+ sum(aux)
+            score_population[idi] = sum(score) / (self.num_regions ** 2)
 
         return score_population
 
@@ -215,8 +214,6 @@ class XmippProtModelGA(ProtAnalysis3D):
         voxelsRegion = np.zeros(self.num_regions)
         cMat = np.zeros((self.num_regions, self.num_regions))
         for idr in range(self.num_regions):
-            # voxelsRegion[idr] = np.sum(self.idMask == self.regions_id[idr])
-            # row = self.neighbours(self.regions_id[idr])
             row, boundary_voxels = self.neighbours(self.regions_id[idr])
             voxelsRegion[idr] = boundary_voxels
             cMat[idr] = row
