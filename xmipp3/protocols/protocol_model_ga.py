@@ -26,7 +26,6 @@
 
 import numpy as np
 import sys
-from itertools import combinations
 
 from pwem.objects import Volume
 from pwem.protocols import ProtAnalysis3D
@@ -55,7 +54,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         form.addParam('p_mutation', params.FloatParam, label='Mutation Probability', default=0.3, expertlevel=params.LEVEL_ADVANCED,
                       help='Probability of introducing a mutation in an individual from the offspring')
 
-    # --------------------------- INSERT steps functions ---------------------------
+    # --------------------------- Steps functions ---------------------------
     def _insertAllSteps(self):
         self._insertFunctionStep('geneticAlgorithm')
         self._insertFunctionStep('createOutputStep')
@@ -96,26 +95,32 @@ class XmippProtModelGA(ProtAnalysis3D):
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
-        print(new_population[score_population.argmin()])
-        self.bestIndividual = new_population[score_population.argmin()]
+        best_individuals = np.argsort(score_population)
+        self.bestIndividuals = new_population[best_individuals[:num_parents]]
 
     def createOutputStep(self):
         ih = ImageHandler()
-        outMask = ih.createImage()
-        outData = np.zeros(self.idMask.shape, float)
-        for pos, idm in enumerate(self.regions_id):
-            logic_mask = self.idMask == idm
-            outData += self.bestIndividual[pos] * (self.idMask * logic_mask / idm)
-        outMask.setData(outData)
-        ih.write(outMask, self._getExtraPath('outMask.mrc'))
-        volume = Volume()
-        volume.setSamplingRate(self.inputMask.get().getSamplingRate())
-        volume.setLocation(self._getExtraPath('outMask.mrc'))
-        self._defineOutputs(outputMask=volume)
-        self._defineSourceRelation(self.inputMask, volume)
+        outputMasks = self._createSetOfVolumes()
+        outputMasks.setSamplingRate(self.inputMask.get().getSamplingRate())
+        score_id = 1
+        for individual in self.bestIndividuals:
+            outMask = ih.createImage()
+            outData = np.zeros(self.idMask.shape, float)
+            for pos, idm in enumerate(self.regions_id):
+                logic_mask = self.idMask == idm
+                outData += individual[pos] * (self.idMask * logic_mask / idm)
+            outMask.setData(outData)
+            ih.write(outMask, self._getExtraPath('outMask_%d.mrc' % score_id))
+            volume = Volume()
+            volume.setSamplingRate(self.inputMask.get().getSamplingRate())
+            volume.setLocation(self._getExtraPath('outMask_%d.mrc' % score_id))
+            outputMasks.append(volume)
+            score_id += 1
+        self._defineOutputs(outputMasks=outputMasks)
+        self._defineSourceRelation(self.inputMask, outputMasks)
 
 
-    # --------------------------- DEFINE utils functions ----------------------
+    # --------------------------- Utils functions ----------------------
     def massScore(self, population):
         mean_density_prot = 8.1325e-04  # KDa / (A^3)
         mean_mass_aa = 0.110  # KDa
@@ -273,9 +278,14 @@ class XmippProtModelGA(ProtAnalysis3D):
                 min_index = v
         return min_index
 
-    # --------------------------- DEFINE info functions ----------------------
+    # --------------------------- Info functions ----------------------
     def _methods(self):
         pass
 
     def _summary(self):
-        pass
+        summary = []
+        if self.getOutputsSize() >= 1:
+            summary.append("Number of individuals saved: %d" % self.outputMasks.getSize())
+        else:
+            summary.append("Output masks not ready yet.")
+        return summary
