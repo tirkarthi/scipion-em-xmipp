@@ -26,12 +26,69 @@
 
 import numpy as np
 import sys
+from joblib import delayed, Parallel
 
 from pwem.objects import Volume
 from pwem.protocols import ProtAnalysis3D
 from pwem.emlib.image import ImageHandler
 
 import pyworkflow.protocol.params as params
+
+
+def Test_Parallel(seqs, individual, num_regions, cMat, idi):
+    # score = 0
+    score = np.zeros(len(seqs))
+    for idx in range(len(seqs)):
+        chain_regions = np.where(individual == (idx + 1))
+        dMat = dijkstraMatrix(chain_regions[0], cMat)
+        score[idx] = connectivityMap(chain_regions[0], dMat)
+    return (sum(score) / (num_regions ** 2), idi)
+
+def dijkstraMatrix(chain_regions, cMat):
+    num_regions = len(chain_regions)
+    dMat = np.zeros((num_regions, num_regions))
+    for idr in range(num_regions):
+        row = dijkstra(idr, chain_regions, cMat)
+        dMat[idr,:] = row
+    return dMat
+
+def dijkstra(src, chain_regions, cMat):
+    num_regions = len(chain_regions)
+    dist = [sys.maxsize] * num_regions
+    dist[src] = 0
+    sptSet = [False] * num_regions
+
+    for cout in range(num_regions):
+        u = minDistance(dist, sptSet, num_regions)
+        sptSet[u] = True
+        for v in range(num_regions):
+            if cMat[chain_regions[u], chain_regions[v]] > 0 and \
+                    sptSet[v] == False and \
+                    dist[v] > dist[u] + cMat[chain_regions[u], chain_regions[v]]:
+                dist[v] = dist[u] + cMat[chain_regions[u], chain_regions[v]]
+    return np.asarray(dist)
+
+def minDistance(dist, sptSet, num_regions):
+    min = sys.maxsize
+    for v in range(num_regions):
+        if dist[v] <= min and sptSet[v] == False:
+            min = dist[v]
+            min_index = v
+    return min_index
+
+def connectivityMap(chain_regions, dMat):
+    score = 0
+    for idm in range(len(chain_regions)):
+        min_dist = sys.maxsize
+        max_dist = 0
+        for idn in range(len(chain_regions)):
+            aux = dMat[idm,idn]
+            if idm != idn and aux < min_dist:
+                min_dist = aux
+            elif idm != idn and aux > max_dist:
+                max_dist = aux
+        score += min_dist + max_dist
+    return score
 
 
 class XmippProtModelGA(ProtAnalysis3D):
@@ -53,6 +110,7 @@ class XmippProtModelGA(ProtAnalysis3D):
                       help='Number of parents to be mated')
         form.addParam('p_mutation', params.FloatParam, label='Mutation Probability', default=0.3, expertlevel=params.LEVEL_ADVANCED,
                       help='Probability of introducing a mutation in an individual from the offspring')
+        form.addParallelSection(threads=1, mpi=0)
 
     # --------------------------- Steps functions ---------------------------
     def _insertAllSteps(self):
@@ -145,43 +203,42 @@ class XmippProtModelGA(ProtAnalysis3D):
 
     def connectivityScore(self, population):
         score_population = np.zeros(len(population))
-        for idi, individual in enumerate(population):
-            # score = 0
-            score = np.zeros(len(self.seqs))
-            for idx in range(len(self.seqs)):
-                chain_regions = np.where(individual == (idx + 1))
-                dMat = self.dijkstraMatrix(chain_regions[0])
-                score[idx] = self.connectivityMap(chain_regions[0], dMat)
-            score_population[idi] = sum(score) / (self.num_regions ** 2)
+        # for idi, individual in enumerate(population):
+        out = Parallel(n_jobs=self.numberOfThreads.get())\
+            (delayed(Test_Parallel)(self.seqs, individual, self.num_regions, self.cMat, idi)
+             for idi, individual in enumerate(population))
+
+        for score, pos in out:
+            score_population[pos] = score
 
         return score_population
 
-    def connectivityMap(self, chain_regions, dMat):
-        score = 0
-        for idm in range(len(chain_regions)):
-            min_dist = sys.maxsize
-            max_dist = 0
-            for idn in range(len(chain_regions)):
-                aux = dMat[idm,idn]
-                if idm != idn and aux < min_dist:
-                    min_dist = aux
-                elif idm != idn and aux > max_dist:
-                    max_dist = aux
-            score += min_dist + max_dist
-
-        # score = 0
-        # size = len(chain_regions)
-        # connected = np.zeros(size)
-        # for idx in range(size - 1):
-        #     min_dist = np.inf
-        #     for idy in range(size):
-        #         aux = dMat[idx,idy]
-        #         if idx != idy and aux < min_dist and connected[idy] == 0:
-        #             min_dist = aux
-        #     score += min_dist
-        #     connected[idx] = 1
-
-        return score
+    # def connectivityMap(self, chain_regions, dMat):
+    #     score = 0
+    #     for idm in range(len(chain_regions)):
+    #         min_dist = sys.maxsize
+    #         max_dist = 0
+    #         for idn in range(len(chain_regions)):
+    #             aux = dMat[idm,idn]
+    #             if idm != idn and aux < min_dist:
+    #                 min_dist = aux
+    #             elif idm != idn and aux > max_dist:
+    #                 max_dist = aux
+    #         score += min_dist + max_dist
+    #
+    #     # score = 0
+    #     # size = len(chain_regions)
+    #     # connected = np.zeros(size)
+    #     # for idx in range(size - 1):
+    #     #     min_dist = np.inf
+    #     #     for idy in range(size):
+    #     #         aux = dMat[idx,idy]
+    #     #         if idx != idy and aux < min_dist and connected[idy] == 0:
+    #     #             min_dist = aux
+    #     #     score += min_dist
+    #     #     connected[idx] = 1
+    #
+    #     return score
 
     def matingPool(self, population, score, num_parents):
         parents = np.empty((num_parents, population.shape[1]))
@@ -246,37 +303,37 @@ class XmippProtModelGA(ProtAnalysis3D):
                 boundary_voxels += 1
         return row, boundary_voxels
 
-    def dijkstraMatrix(self, chain_regions):
-        num_regions = len(chain_regions)
-        dMat = np.zeros((num_regions, num_regions))
-        for idr in range(num_regions):
-            row = self.dijkstra(idr, chain_regions)
-            dMat[idr,:] = row
-        return dMat
-
-    def dijkstra(self, src, chain_regions):
-        num_regions = len(chain_regions)
-        dist = [sys.maxsize] * num_regions
-        dist[src] = 0
-        sptSet = [False] * num_regions
-
-        for cout in range(num_regions):
-            u = self.minDistance(dist, sptSet, num_regions)
-            sptSet[u] = True
-            for v in range(num_regions):
-                if self.cMat[chain_regions[u], chain_regions[v]] > 0 and \
-                        sptSet[v] == False and \
-                        dist[v] > dist[u] + self.cMat[chain_regions[u], chain_regions[v]]:
-                    dist[v] = dist[u] + self.cMat[chain_regions[u], chain_regions[v]]
-        return np.asarray(dist)
-
-    def minDistance(self, dist, sptSet, num_regions):
-        min = sys.maxsize
-        for v in range(num_regions):
-            if dist[v] <= min and sptSet[v] == False:
-                min = dist[v]
-                min_index = v
-        return min_index
+    # def dijkstraMatrix(self, chain_regions):
+    #     num_regions = len(chain_regions)
+    #     dMat = np.zeros((num_regions, num_regions))
+    #     for idr in range(num_regions):
+    #         row = self.dijkstra(idr, chain_regions)
+    #         dMat[idr,:] = row
+    #     return dMat
+    #
+    # def dijkstra(self, src, chain_regions):
+    #     num_regions = len(chain_regions)
+    #     dist = [sys.maxsize] * num_regions
+    #     dist[src] = 0
+    #     sptSet = [False] * num_regions
+    #
+    #     for cout in range(num_regions):
+    #         u = self.minDistance(dist, sptSet, num_regions)
+    #         sptSet[u] = True
+    #         for v in range(num_regions):
+    #             if self.cMat[chain_regions[u], chain_regions[v]] > 0 and \
+    #                     sptSet[v] == False and \
+    #                     dist[v] > dist[u] + self.cMat[chain_regions[u], chain_regions[v]]:
+    #                 dist[v] = dist[u] + self.cMat[chain_regions[u], chain_regions[v]]
+    #     return np.asarray(dist)
+    #
+    # def minDistance(self, dist, sptSet, num_regions):
+    #     min = sys.maxsize
+    #     for v in range(num_regions):
+    #         if dist[v] <= min and sptSet[v] == False:
+    #             min = dist[v]
+    #             min_index = v
+    #     return min_index
 
     # --------------------------- Info functions ----------------------
     def _methods(self):
