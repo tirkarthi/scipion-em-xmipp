@@ -42,7 +42,7 @@ def Test_Parallel(seqs, individual, num_regions, cMat, idi):
         chain_regions = np.where(individual == (idx + 1))
         dMat = dijkstraMatrix(chain_regions[0], cMat)
         score[idx] = connectivityMap(chain_regions[0], dMat)
-    return (sum(score) / (num_regions ** 2), idi)
+    return sum(score) / (num_regions ** 2), idi
 
 def dijkstraMatrix(chain_regions, cMat):
     num_regions = len(chain_regions)
