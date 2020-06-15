@@ -27,6 +27,7 @@
 import numpy as np
 import sys
 from joblib import delayed, Parallel
+from numba import njit
 
 from pwem.objects import Volume
 from pwem.protocols import ProtAnalysis3D
@@ -35,6 +36,7 @@ from pwem.emlib.image import ImageHandler
 import pyworkflow.protocol.params as params
 
 
+@njit
 def Test_Parallel(seqs, individual, num_regions, cMat, idi):
     # score = 0
     score = np.zeros(len(seqs))
@@ -42,8 +44,9 @@ def Test_Parallel(seqs, individual, num_regions, cMat, idi):
         chain_regions = np.where(individual == (idx + 1))
         dMat = dijkstraMatrix(chain_regions[0], cMat)
         score[idx] = connectivityMap(chain_regions[0], dMat)
-    return sum(score) / (num_regions ** 2), idi
+    return np.sum(score) / (num_regions ** 2), idi
 
+@njit
 def dijkstraMatrix(chain_regions, cMat):
     num_regions = len(chain_regions)
     dMat = np.zeros((num_regions, num_regions))
@@ -52,6 +55,7 @@ def dijkstraMatrix(chain_regions, cMat):
         dMat[idr,:] = row
     return dMat
 
+@njit
 def dijkstra(src, chain_regions, cMat):
     num_regions = len(chain_regions)
     dist = [sys.maxsize] * num_regions
@@ -68,6 +72,7 @@ def dijkstra(src, chain_regions, cMat):
                 dist[v] = dist[u] + cMat[chain_regions[u], chain_regions[v]]
     return np.asarray(dist)
 
+@njit
 def minDistance(dist, sptSet, num_regions):
     min = sys.maxsize
     for v in range(num_regions):
@@ -76,6 +81,7 @@ def minDistance(dist, sptSet, num_regions):
             min_index = v
     return min_index
 
+@njit
 def connectivityMap(chain_regions, dMat):
     score = 0
     for idm in range(len(chain_regions)):
@@ -89,6 +95,14 @@ def connectivityMap(chain_regions, dMat):
                 max_dist = aux
         score += min_dist + max_dist
     return score
+
+@njit
+def massIndividual(individual, seqs, submass, map_region_mass, idi):
+    score = 0
+    for idx in range((len(seqs))):
+        map_regions = np.where(individual == (idx + 1))
+        score += np.abs(submass[idx] - np.sum(map_region_mass[map_regions]))
+    return score, idi
 
 
 class XmippProtModelGA(ProtAnalysis3D):
@@ -136,6 +150,21 @@ class XmippProtModelGA(ProtAnalysis3D):
         num_parents = self.parents.get()
         self.cMat = self.connectivityMatrix()
 
+        mean_density_prot = 8.1325e-04  # KDa / (A^3)
+        mean_mass_aa = 0.110  # KDa
+        sampling_rate = self.inputMask.get().getSamplingRate() ** 3  # A^3 / voxel
+        mean_density_prot *= sampling_rate
+
+        self.submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
+        self.submass = np.asarray(self.submass)
+        self.submass /= np.sum(self.submass)
+        print(self.submass)
+
+        self.map_region_mass = [mean_density_prot * np.sum(self.idMask[self.idMask == idr]) / idr for idr in self.regions_id]
+        self.map_region_mass = np.asarray(self.map_region_mass)
+        self.map_region_mass /= np.sum(self.map_region_mass)
+        print(self.map_region_mass)
+
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
             score_population = self.massScore(new_population)
@@ -154,7 +183,8 @@ class XmippProtModelGA(ProtAnalysis3D):
             sys.stdout.flush()
 
         best_individuals = np.argsort(score_population)
-        self.bestIndividuals = new_population[best_individuals[:num_parents]]
+        print(new_population[best_individuals[0]])
+        self.bestIndividuals = new_population[best_individuals[:20]]
 
     def createOutputStep(self):
         ih = ImageHandler()
@@ -180,24 +210,13 @@ class XmippProtModelGA(ProtAnalysis3D):
 
     # --------------------------- Utils functions ----------------------
     def massScore(self, population):
-        mean_density_prot = 8.1325e-04  # KDa / (A^3)
-        mean_mass_aa = 0.110  # KDa
-        sampling_rate = self.inputMask.get().getSamplingRate() ** 3  # A^3 / voxel
-        mean_density_prot *= sampling_rate
-
-        submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
-        submass = np.asarray(submass)
-        submass /= np.sum(submass)
-
-        map_region_mass = [mean_density_prot * np.sum(self.idMask[self.idMask == idr]) / idr for idr in self.regions_id]
-        map_region_mass = np.asarray(map_region_mass)
-        map_region_mass /= np.sum(map_region_mass)
-
         score_population = np.zeros(len(population))
-        for idx in range((len(self.seqs))):
-            for idi, individual in enumerate(population):
-                map_regions = np.where(individual == (idx + 1))
-                score_population[idi] += np.abs(submass[idx] - np.sum(map_region_mass[map_regions]))
+        out = Parallel(n_jobs=self.numberOfThreads.get()) \
+            (delayed(massIndividual)(individual, self.seqs, self.submass, self.map_region_mass, idi)
+             for idi, individual in enumerate(population))
+
+        for score, pos in out:
+            score_population[pos] = score
 
         return score_population
 
