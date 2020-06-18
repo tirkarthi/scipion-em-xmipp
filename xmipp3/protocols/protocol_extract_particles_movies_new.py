@@ -194,6 +194,7 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
 
     def _processMovie(self, movie):
         movId = movie.getObjId()
+        #print("AQUI", movId, movie.getDim(), movie.getFramesRange())
         x, y, n = movie.getDim()
         iniFrame, lastFrame, _ = movie.getFramesRange()
         frame0, frameN = self._getRange(movie)
@@ -240,6 +241,7 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                 fnAlign = fnRoot + '/' + fnMovie.split('/')[-1] + '_shifts.xmd'
                 fnOutFile = self.inputAlignMovieProt.get()._getExtraPath('auxOutputFile.txt')
 
+
                 try:
                     #print("Applying " + "localAlignment@" + fnAlign)
                     mdAlign = md.MetaData("localAlignment@"+fnAlign)
@@ -254,13 +256,14 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                     args += " --downsampling %f " % self.getBoxScale()
                     self.runJob('xmipp_micrograph_scissor_2', args)
                 except:
-                    #print("No applying " + "localAlignment@"+fnAlign)
+                    print("WARNING: No applying new version of xmipp_micrograph_scissor for " + frameName)
                     self._writeXmippPosFile(movie, coordinatesName,
                                             shiftX[indx], shiftY[indx])
                     args = '-i %(frameName)s --pos %(coordinatesName)s ' \
                            '-o %(frameImages)s --Xdim %(boxSize)d ' % locals()
                     args += " --downsampling %f " % self.getBoxScale()
                     self.runJob('xmipp_micrograph_scissor', args)
+
 
 
                 cleanPath(frameName)
@@ -386,9 +389,12 @@ class XmippProtExtractMovieParticlesNew(ProtProcessMovies):
                         rowOutFinal.setValue(xmippLib.MDL_ANGLE_TILT, tiltIn)
                         rowOutFinal.setValue(xmippLib.MDL_ANGLE_PSI, psiIn)
                         rowOutFinal.setValue(xmippLib.MDL_FLIP, flipIn)
-                        rowOutFinal.setValue(xmippLib.MDL_MAXCC, ccIn)
-                        rowOutFinal.setValue(xmippLib.MDL_COST, costIn)
-                        rowOutFinal.setValue(xmippLib.MDL_WEIGHT, wIn)
+                        if ccIn is not None:
+                            rowOutFinal.setValue(xmippLib.MDL_MAXCC, ccIn)
+                        if costIn is not None:
+                            rowOutFinal.setValue(xmippLib.MDL_COST, costIn)
+                        if wIn is not None:
+                            rowOutFinal.setValue(xmippLib.MDL_WEIGHT, wIn)
                         rowOutFinal.addToMd(mdFinal)
                         count += 1
                         if count == (frameN - frame0 + 1):
