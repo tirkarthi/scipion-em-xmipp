@@ -98,11 +98,12 @@ def connectivityMap(chain_regions, dMat):
 
 @njit
 def massIndividual(individual, seqs, submass, map_region_mass, idi):
-    score = 0
+    score = np.zeros(len(seqs))
     for idx in range((len(seqs))):
         map_regions = np.where(individual == (idx + 1))
-        score += np.abs(submass[idx] - np.sum(map_region_mass[map_regions]))
-    return score, idi
+        score[idx] = np.abs(submass[idx] - np.sum(map_region_mass[map_regions]))
+    # return np.sum(score)/len(score), idi
+    return np.amax(score), idi
 
 
 class XmippProtModelGA(ProtAnalysis3D):
@@ -132,8 +133,6 @@ class XmippProtModelGA(ProtAnalysis3D):
         self._insertFunctionStep('createOutputStep')
 
     def geneticAlgorithm(self):
-        # import time
-        # time.sleep(10)
         ih = ImageHandler()
         self.seqs = [seq.get().getSequence() for seq in self.inputSeqs]
         self.seqs = np.asarray(self.seqs)
@@ -157,13 +156,19 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         self.submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
         self.submass = np.asarray(self.submass)
+        self.submass /= (mean_density_prot / sampling_rate)
+
+        self.map_region_mass = [sampling_rate * np.sum(self.idMask == idr) for idr in self.regions_id]
+        self.map_region_mass = np.asarray(self.map_region_mass)
+        factor = np.sum(self.submass) / np.sum(self.map_region_mass)
+        self.map_region_mass *= factor
+
+        self.map_region_mass /= np.sum(self.map_region_mass)
         self.submass /= np.sum(self.submass)
         print(self.submass)
-
-        self.map_region_mass = [mean_density_prot * np.sum(self.idMask[self.idMask == idr]) / idr for idr in self.regions_id]
-        self.map_region_mass = np.asarray(self.map_region_mass)
-        self.map_region_mass /= np.sum(self.map_region_mass)
+        print(np.sum(self.submass))
         print(self.map_region_mass)
+        print(np.sum(self.map_region_mass))
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
