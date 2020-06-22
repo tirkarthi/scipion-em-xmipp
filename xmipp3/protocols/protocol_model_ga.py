@@ -37,7 +37,7 @@ import pyworkflow.protocol.params as params
 
 
 @njit
-def Test_Parallel(seqs, individual, num_regions, cMat, idi):
+def connectivityIndividual(seqs, individual, num_regions, cMat, idi):
     # score = 0
     score = np.zeros(len(seqs))
     for idx in range(len(seqs)):
@@ -229,7 +229,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         score_population = np.zeros(len(population))
         # for idi, individual in enumerate(population):
         out = Parallel(n_jobs=self.numberOfThreads.get())\
-            (delayed(Test_Parallel)(self.seqs, individual, self.num_regions, self.cMat, idi)
+            (delayed(connectivityIndividual)(self.seqs, individual, self.num_regions, self.cMat, idi)
              for idi, individual in enumerate(population))
 
         for score, pos in out:
