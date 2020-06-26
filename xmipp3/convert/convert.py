@@ -211,7 +211,13 @@ if not getattr(emlib, "GHOST_ACTIVATED", False):
         emlib.MDL_FRAME_ID,
         emlib.MDL_SCORE_BY_VAR,
         emlib.MDL_SCORE_BY_GINI,
-        emlib.MDL_ZSCORE_DEEPLEARNING1
+        emlib.MDL_ZSCORE_DEEPLEARNING1,
+        emlib.MDL_WEIGHT,
+        emlib.MDL_WEIGHT_SIGNIFICANT,
+        emlib.MDL_REF,
+        emlib.MDL_IMAGE_IDX,
+        emlib.MDL_MAXCC,
+        emlib.MDL_COST
         ]
 
     ANGLES_DICT = OrderedDict([
