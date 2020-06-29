@@ -255,14 +255,16 @@ class XmippProtAngularGraphConsistence(ProtAnalysis3D):
         setXmippAttributes(item, row, md.MDL_ANGLE_ROT, md.MDL_ANGLE_TILT,
                            md.MDL_ANGLE_PSI, md.MDL_SHIFT_X, md.MDL_SHIFT_Y,
                            md.MDL_MAXCC, md.MDL_WEIGHT,
-                           md.MDL_ANGULAR_GRAPHCONSISTENCE)
+                           md.MDL_MAXCC_PREVIOUS, md.MDL_GRAPH_CC_PREVIOUS,
+                           md.MDL_ASSIGNED_DIR_REF_CC, md.MDL_GRAPH_DISTANCE2MAX_PREVIOUS,
+                           md.MDL_GRAPH_CC, md.MDL_GRAPH_DISTANCE2MAX)
         createItemMatrix(item, row, align=ALIGN_PROJ)
         
     def createPlot2D(self, fnAngles):
         mdParticles = emlib.MetaData(fnAngles)
         
         ccList = mdParticles.getColumnValues(emlib.MDL_MAXCC)
-        graphConsistList = mdParticles.getColumnValues(emlib.MDL_ANGULAR_GRAPHCONSISTENCE)
+        graphConsistList = mdParticles.getColumnValues(emlib.MDL_ASSIGNED_DIR_REF_CC)
         
         # threshold
         th_gsp = self.otsu(graphConsistList)
@@ -273,7 +275,7 @@ class XmippProtAngularGraphConsistence(ProtAnalysis3D):
         total = 0
         for objId in mdParticles:
             total += 1
-            if ( mdParticles.getValue(emlib.MDL_ANGULAR_GRAPHCONSISTENCE, objId) > th_gsp ):
+            if ( mdParticles.getValue(emlib.MDL_ASSIGNED_DIR_REF_CC, objId) > th_gsp ):
                 cont_gsp += 1
             if ( mdParticles.getValue(emlib.MDL_MAXCC, objId) > th_cc ):
                 cont_cc += 1
