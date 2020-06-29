@@ -82,26 +82,26 @@ bulk = {
 }
 
 hidroScale = {
-    "A": 1.800,
-    "R": -4.500,
-    "N": -3.500,
-    "D": -3.500,
-    "C": 2.500,
-    "Q": -3.500,
-    "E": -3.500,
-    "G": -0.400,
-    "H": -3.200,
-    "I": 4.500,
-    "L": 3.800,
-    "K": -3.900,
-    "M": 1.900,
-    "F": 2.800,
-    "P": -1.600,
-    "S": -0.800,
-    "T": -0.700,
-    "W": -0.900,
-    "Y": -1.300,
-    "V": 4.200,
+    "A": 5.300,
+    "R": 4.180,
+    "N": 3.710,
+    "D": 3.590,
+    "C": 7.930,
+    "Q": 3.870,
+    "E": 3.650,
+    "G": 4.480,
+    "H": 5.100,
+    "I": 8.830,
+    "L": 4.470,
+    "K": 2.950,
+    "M": 8.950,
+    "F": 9.030,
+    "P": 3.870,
+    "S": 4.090,
+    "T": 4.490,
+    "W": 7.660,
+    "Y": 5.890,
+    "V": 7.630,
 }
 
 @njit
@@ -194,8 +194,13 @@ def connectivityChains(seqs, individual, num_regions, cMat, idi):
     return score, idi
 
 @njit
-def hidrophobicityIndividual(seqs, individual, num_regions, cMat, idi):
-    pass
+def hidrophobicityIndividual(chainHidro, individual, regionsContactBg, idi):
+    score = np.ones(len(chainHidro))
+    for idx in range(len(chainHidro)):
+        chainRegions = np.where(individual == (idx+1))
+        score[idx] = np.abs(chainHidro[idx] - np.sum(regionsContactBg[chainRegions]))
+    return np.amax(score), idi
+
 
 class XmippProtModelGA(ProtAnalysis3D):
     """Modeling implemented through genetic algorithm"""
@@ -238,7 +243,8 @@ class XmippProtModelGA(ProtAnalysis3D):
         new_population = np.random.random_integers(low=1, high=len(self.seqs), size=pop_size)
         num_generations = self.generations.get()
         num_parents = self.parents.get()
-        self.cMat, self.contactBgVoxels = self.connectivityMatrix()
+        self.cMat, self.regionsContactBg = self.connectivityMatrix()
+        print(self.regionsContactBg)
 
         mean_density_prot = 8.1325e-04  # KDa / (A^3)
         mean_mass_aa = 0.110  # KDa
@@ -273,12 +279,14 @@ class XmippProtModelGA(ProtAnalysis3D):
             self.chainHidro.append(hidro)
         self.chainHidro = np.asarray(self.chainHidro)
         self.chainHidro /= np.sum(self.chainHidro)
+        print(self.chainHidro)
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
-            score_population = self.massScore(new_population)
-            score_population += self.connectivityScore(new_population)
-            score_population += self.connectivityScoreChain(new_population)
+            # score_population = self.massScore(new_population)
+            # score_population += self.connectivityScore(new_population)
+            # score_population += self.connectivityScoreChain(new_population)
+            score_population = self.hidrophobicityScore(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], self.num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
@@ -287,9 +295,10 @@ class XmippProtModelGA(ProtAnalysis3D):
             new_population[parents.shape[0]:, :] = offspring_mutation
 
             # FIXME: Probably this can be removed
-            score_population = self.massScore(new_population)
-            score_population += self.connectivityScore(new_population)
-            score_population += self.connectivityScoreChain(new_population)
+            # score_population = self.massScore(new_population)
+            # score_population += self.connectivityScore(new_population)
+            # score_population += self.connectivityScoreChain(new_population)
+            score_population = self.hidrophobicityScore(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
@@ -359,7 +368,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         score_population = np.zeros(len(population))
         # for idi, individual in enumerate(population):
         out = Parallel(n_jobs=self.numberOfThreads.get())\
-            (delayed(hidrophobicityIndividual)(self.chainHidro, individual, self.num_regions, self.contactBgVoxels, idi)
+            (delayed(hidrophobicityIndividual)(self.chainHidro, individual, self.regionsContactBg, idi)
              for idi, individual in enumerate(population))
 
         for score, pos in out:
@@ -433,7 +442,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         for idr in range(self.num_regions):
             row, boundary_voxels, contactBgVoxels = self.neighbours(self.regions_id[idr])
             voxelsRegion[idr] = boundary_voxels
-            regionsContactBg[idr] = contactBgVoxels / boundary_voxels
+            regionsContactBg[idr] = contactBgVoxels
             cMat[idr] = row
 
         # Connectivity matrix normalization (Dice coefficient)
@@ -442,7 +451,7 @@ class XmippProtModelGA(ProtAnalysis3D):
                 sumVoxels = voxelsRegion[idm] + voxelsRegion[idn]
                 cMat[idm,idn] = 1 - (2 * cMat[idm,idn] / sumVoxels)
         cMat[cMat == 1] = self.num_regions
-        return cMat, contactBgVoxels
+        return cMat, regionsContactBg / np.sum(regionsContactBg)
 
     def neighbours(self, region_id):
         boundary_voxels = 0
