@@ -35,6 +35,74 @@ from pwem.emlib.image import ImageHandler
 
 import pyworkflow.protocol.params as params
 
+# bulk = {
+#     "A": 11.500,
+#     "R": 14.280,
+#     "N": 12.820,
+#     "D": 11.680,
+#     "C": 13.460,
+#     "Q": 14.450,
+#     "E": 13.570,
+#     "G": 3.400,
+#     "H": 13.690,
+#     "I": 21.400,
+#     "L": 21.400,
+#     "K": 15.710,
+#     "M": 16.250,
+#     "F": 19.800,
+#     "P": 17.430,
+#     "S": 9.470,
+#     "T": 15.770,
+#     "W": 21.670,
+#     "Y": 18.030,
+#     "V": 21.570,
+# }
+
+bulk = {
+    "A": 87.8,
+    "R": 192.9,
+    "N": 124.7,
+    "D": 125.5,
+    "C": 105.4,
+    "Q": 147.3,
+    "E": 13.570,
+    "G": 148.0,
+    "H": 156.3,
+    "I": 166.1,
+    "L": 168,
+    "K": 184.5,
+    "M": 165.2,
+    "F": 189.7,
+    "P": 123.3,
+    "S": 91.7,
+    "T": 118.3,
+    "W": 227.9,
+    "Y": 191.2,
+    "V": 138.8,
+}
+
+hidroScale = {
+    "A": 1.800,
+    "R": -4.500,
+    "N": -3.500,
+    "D": -3.500,
+    "C": 2.500,
+    "Q": -3.500,
+    "E": -3.500,
+    "G": -0.400,
+    "H": -3.200,
+    "I": 4.500,
+    "L": 3.800,
+    "K": -3.900,
+    "M": 1.900,
+    "F": 2.800,
+    "P": -1.600,
+    "S": -0.800,
+    "T": -0.700,
+    "W": -0.900,
+    "Y": -1.300,
+    "V": 4.200,
+}
 
 @njit
 def connectivityIndividual(seqs, individual, num_regions, cMat, idi):
@@ -105,6 +173,29 @@ def massIndividual(individual, seqs, submass, map_region_mass, idi):
     # return np.sum(score)/len(score), idi
     return np.amax(score), idi
 
+@njit
+def connectivityChains(seqs, individual, num_regions, cMat, idi):
+    score = np.ones(len(seqs) - 1)
+    for idx in range((len(seqs)) - 1):
+        firstChain = np.where(individual == (idx + 1))
+        secondChain = np.where(individual == (idx + 2))
+        if len(firstChain[0]) > 0 and len(secondChain[0]) > 0:
+            aux = 0
+            for idm in firstChain[0]:
+                interRegionScore = sys.maxsize
+                for idn in secondChain[0]:
+                    if cMat[idm, idn] < interRegionScore:
+                        interRegionScore = cMat[idm, idn]
+                aux += interRegionScore
+        else:
+            aux = sys.maxsize
+        score[idx] = aux
+    score = np.amax(score) / (50 * num_regions)
+    return score, idi
+
+@njit
+def hidrophobicityIndividual(seqs, individual, num_regions, cMat, idi):
+    pass
 
 class XmippProtModelGA(ProtAnalysis3D):
     """Modeling implemented through genetic algorithm"""
@@ -147,14 +238,22 @@ class XmippProtModelGA(ProtAnalysis3D):
         new_population = np.random.random_integers(low=1, high=len(self.seqs), size=pop_size)
         num_generations = self.generations.get()
         num_parents = self.parents.get()
-        self.cMat = self.connectivityMatrix()
+        self.cMat, self.contactBgVoxels = self.connectivityMatrix()
 
         mean_density_prot = 8.1325e-04  # KDa / (A^3)
         mean_mass_aa = 0.110  # KDa
         sampling_rate = self.inputMask.get().getSamplingRate() ** 3  # A^3 / voxel
         mean_density_prot *= sampling_rate
 
-        self.submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
+        # self.submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
+        # print(sum([mean_mass_aa * len(subseq) for subseq in self.seqs]))
+        self.submass = []
+        for seq in self.seqs:
+            vol = 0
+            for aa in seq:
+                vol += bulk[aa]
+            self.submass.append(vol)
+        print(self.submass)
         self.submass = np.asarray(self.submass)
         self.submass /= (mean_density_prot / sampling_rate)
 
@@ -165,15 +264,21 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         self.map_region_mass /= np.sum(self.map_region_mass)
         self.submass /= np.sum(self.submass)
-        print(self.submass)
-        print(np.sum(self.submass))
-        print(self.map_region_mass)
-        print(np.sum(self.map_region_mass))
+
+        self.chainHidro = []
+        for seq in self.seqs:
+            hidro = 0
+            for aa in seq:
+                hidro += hidroScale[aa]
+            self.chainHidro.append(hidro)
+        self.chainHidro = np.asarray(self.chainHidro)
+        self.chainHidro /= np.sum(self.chainHidro)
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
             score_population = self.massScore(new_population)
             score_population += self.connectivityScore(new_population)
+            score_population += self.connectivityScoreChain(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], self.num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
@@ -184,6 +289,7 @@ class XmippProtModelGA(ProtAnalysis3D):
             # FIXME: Probably this can be removed
             score_population = self.massScore(new_population)
             score_population += self.connectivityScore(new_population)
+            score_population += self.connectivityScoreChain(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
@@ -230,6 +336,30 @@ class XmippProtModelGA(ProtAnalysis3D):
         # for idi, individual in enumerate(population):
         out = Parallel(n_jobs=self.numberOfThreads.get())\
             (delayed(connectivityIndividual)(self.seqs, individual, self.num_regions, self.cMat, idi)
+             for idi, individual in enumerate(population))
+
+        for score, pos in out:
+            score_population[pos] = score
+
+        return score_population
+
+    def connectivityScoreChain(self, population):
+        score_population = np.zeros(len(population))
+        # for idi, individual in enumerate(population):
+        out = Parallel(n_jobs=self.numberOfThreads.get())\
+            (delayed(connectivityChains)(self.seqs, individual, self.num_regions, self.cMat, idi)
+             for idi, individual in enumerate(population))
+
+        for score, pos in out:
+            score_population[pos] = score
+
+        return score_population
+
+    def hidrophobicityScore(self, population):
+        score_population = np.zeros(len(population))
+        # for idi, individual in enumerate(population):
+        out = Parallel(n_jobs=self.numberOfThreads.get())\
+            (delayed(hidrophobicityIndividual)(self.chainHidro, individual, self.num_regions, self.contactBgVoxels, idi)
              for idi, individual in enumerate(population))
 
         for score, pos in out:
@@ -297,11 +427,13 @@ class XmippProtModelGA(ProtAnalysis3D):
         return offspring
 
     def connectivityMatrix(self):
+        regionsContactBg = np.zeros(self.num_regions)
         voxelsRegion = np.zeros(self.num_regions)
         cMat = np.zeros((self.num_regions, self.num_regions))
         for idr in range(self.num_regions):
-            row, boundary_voxels = self.neighbours(self.regions_id[idr])
+            row, boundary_voxels, contactBgVoxels = self.neighbours(self.regions_id[idr])
             voxelsRegion[idr] = boundary_voxels
+            regionsContactBg[idr] = contactBgVoxels / boundary_voxels
             cMat[idr] = row
 
         # Connectivity matrix normalization (Dice coefficient)
@@ -310,22 +442,26 @@ class XmippProtModelGA(ProtAnalysis3D):
                 sumVoxels = voxelsRegion[idm] + voxelsRegion[idn]
                 cMat[idm,idn] = 1 - (2 * cMat[idm,idn] / sumVoxels)
         cMat[cMat == 1] = self.num_regions
-        return cMat
+        return cMat, contactBgVoxels
 
     def neighbours(self, region_id):
         boundary_voxels = 0
+        contactBgVoxels = 0
         voxels = np.asarray(np.where(self.idMask == region_id))
         row = np.zeros(self.num_regions)
         for idv in range(voxels.shape[1]):
             coords = voxels[:,idv]
             submat = self.idMask[coords[0]-1:coords[0]+2, coords[1]-1:coords[1]+2, coords[2]-1:coords[2]+2]
             submat = submat.reshape(-1)
+            touchesBg = True if np.sum(submat == 0) > 0 else False
             submat = np.unique(submat)
             submat = submat[(submat != 0) * (submat != region_id)]
             if len(submat) > 0:
                 row[submat.astype('int') - 1] += 1
                 boundary_voxels += 1
-        return row, boundary_voxels
+            if touchesBg:
+                contactBgVoxels += 1
+        return row, boundary_voxels, contactBgVoxels
 
     # def dijkstraMatrix(self, chain_regions):
     #     num_regions = len(chain_regions)
