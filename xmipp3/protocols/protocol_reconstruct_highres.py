@@ -52,7 +52,7 @@ import pwem.emlib.metadata as md
 from pwem.constants import ALIGN_PROJ
 
 from pwem import emlib
-from xmipp3.base import HelicalFinder
+from xmipp3.base import HelicalFinder, XmippProtocol
 from xmipp3.convert import createItemMatrix, setXmippAttributes, writeSetOfParticles
 
 def getPreviousQuality(img, imgRow):
@@ -61,7 +61,7 @@ def getPreviousQuality(img, imgRow):
     if hasattr(img,"_xmipp_maxCC"):
         imgRow.setValue(md.MDL_MAXCC,img._xmipp_cost.get())
 
-class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
+class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder, XmippProtocol):
     """This is a 3D refinement protocol whose main input is a volume and a set of particles.
        The set of particles has to be at full size (the finer sampling rate available), but
        the rest of inputs (reference volume and masks) can be at any downsampling factor.
@@ -96,7 +96,7 @@ class XmippProtReconstructHighRes(ProtRefine3D, HelicalFinder):
 
     # --------------------------- DEFINE param functions --------------------------------------------
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

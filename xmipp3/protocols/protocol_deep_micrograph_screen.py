@@ -111,7 +111,8 @@ class XmippProtDeepMicrographScreen(ProtExtractParticles, XmippProtocol):
         form.addParam("saveMasks", params.BooleanParam, default=False,expertLevel=params.LEVEL_ADVANCED,
                       label="saveMasks", help="Save predicted masks?")
 
-        form.addHidden(params.USE_GPU, params.BooleanParam, default=True,
+        form.addHidden(params.USE_GPU, params.BooleanParam,
+                       default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation. "
                             "Select the one you want to use. CPU may become "

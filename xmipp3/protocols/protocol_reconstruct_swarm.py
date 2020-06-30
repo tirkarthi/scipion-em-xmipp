@@ -48,12 +48,11 @@ from pyworkflow.utils import getFloatListFromValues
 import pwem.emlib.metadata as md
 
 from pwem import emlib
-from xmipp3.base import HelicalFinder
-from xmipp3.convert import (writeSetOfParticles, createItemMatrix,
-                            setXmippAttributes, getImageLocation)
+from xmipp3.base import XmippProtocol
+from xmipp3.convert import (writeSetOfParticles, getImageLocation)
 
 
-class XmippProtReconstructSwarm(ProtRefine3D):
+class XmippProtReconstructSwarm(ProtRefine3D, XmippProtocol):
     """This is a 3D refinement protocol whose main input is a set of volumes and a set of particles.
        The set of particles has to be at full size (the finer sampling rate available), but
        the rest of inputs (reference volume and masks) can be at any downsampling factor.
@@ -68,7 +67,7 @@ class XmippProtReconstructSwarm(ProtRefine3D):
 
     # --------------------------- DEFINE param functions --------------------------------------------
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

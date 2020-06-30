@@ -33,6 +33,7 @@ from pyworkflow.utils.path import cleanPath
 from pwem.objects import Volume, SetOfParticles, SetOfClasses2D
 
 from pwem import emlib
+from xmipp3 import XmippProtocol
 from xmipp3.constants import *
 from xmipp3.convert import  writeSetOfParticles
 from .protocol_process import XmippProcessParticles,\
@@ -48,7 +49,7 @@ class XmippPreprocessHelper:
     #--------------------------- DEFINE param functions ------------------------
     @classmethod
     def _defineProcessParams(cls, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=XmippProtocol.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

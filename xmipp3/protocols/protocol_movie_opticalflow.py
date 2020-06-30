@@ -41,7 +41,7 @@ from pwem.protocols.protocol_align_movies import (ProtAlignMovies,
                                                   createAlignmentPlot)
 
 from xmipp3.convert import writeMovieMd
-from xmipp3 import Plugin
+from xmipp3 import Plugin, XmippProtocol
 
 PLOT_CART = 0
 PLOT_POLAR = 1

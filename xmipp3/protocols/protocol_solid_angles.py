@@ -38,13 +38,13 @@ from pwem.protocols import ProtAnalysis3D
 import pwem.emlib.metadata as md
 
 from pwem import emlib
-from xmipp3.base import findRow, readInfoField, writeInfoField
+from xmipp3.base import findRow, readInfoField, writeInfoField, XmippProtocol
 from xmipp3.convert import (rowToAlignment, setXmippAttributes, xmippToLocation,
                             createItemMatrix, writeSetOfParticles)
 from xmipp3.constants import SYM_URL
 
 
-class XmippProtSolidAngles(ProtAnalysis3D):
+class XmippProtSolidAngles(ProtAnalysis3D, XmippProtocol):
     """    
     Construct image groups based on the angular assignment. All images assigned within a solid angle
     are assigned to a class. Classes are not exclusive and an image may be assigned to multiple classes
@@ -59,7 +59,8 @@ class XmippProtSolidAngles(ProtAnalysis3D):
     # --------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
 
-        form.addHidden(params.USE_GPU, params.BooleanParam, default=True,
+        form.addHidden(params.USE_GPU, params.BooleanParam,
+                       default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

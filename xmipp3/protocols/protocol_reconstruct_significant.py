@@ -39,11 +39,12 @@ from pwem.protocols import ProtInitialVolume
 from pwem.constants import ALIGN_NONE
 from pwem.objects import SetOfClasses2D, Volume
 from pwem import emlib
+from xmipp3 import XmippProtocol
 
 from xmipp3.convert import writeSetOfClasses2D, writeSetOfParticles, volumeToRow
 
 
-class XmippProtReconstructSignificant(ProtInitialVolume):
+class XmippProtReconstructSignificant(ProtInitialVolume, XmippProtocol):
     """
     This algorithm addresses the initial volume problem in SPA
     by setting it in a Weighted Least Squares framework and
@@ -55,7 +56,7 @@ class XmippProtReconstructSignificant(ProtInitialVolume):
     # --------------------------- DEFINE param functions -----------------------
 
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

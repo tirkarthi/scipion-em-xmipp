@@ -28,11 +28,12 @@ from pwem.objects import Volume
 from pwem.protocols import ProtReconstruct3D
 import pyworkflow.protocol.params as params
 import pyworkflow.protocol.constants as cons
+from xmipp3 import XmippProtocol
 from xmipp3.convert import writeSetOfParticles
 import os
 
 
-class XmippProtReconstructFourier(ProtReconstruct3D):
+class XmippProtReconstructFourier(ProtReconstruct3D, XmippProtocol):
     """    
     Reconstruct a volume using Xmipp_reconstruct_fourier from a given set of particles.
     The alignment parameters will be converted to a Xmipp xmd file
@@ -43,7 +44,8 @@ class XmippProtReconstructFourier(ProtReconstruct3D):
     #--------------------------- DEFINE param functions --------------------------------------------   
     def _defineParams(self, form):
 
-        form.addHidden(params.USE_GPU, params.BooleanParam, default=True,
+        form.addHidden(params.USE_GPU, params.BooleanParam,
+                       default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

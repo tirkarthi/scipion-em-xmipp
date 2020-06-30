@@ -40,11 +40,12 @@ from pwem.objects import Image
 from pwem.protocols.protocol_align_movies import createAlignmentPlot
 from pyworkflow import VERSION_1_1
 from pwem.protocols import ProtAlignMovies
+from xmipp3 import XmippProtocol
 
 from xmipp3.convert import writeMovieMd
 
 
-class XmippProtMovieCorr(ProtAlignMovies):
+class XmippProtMovieCorr(ProtAlignMovies, XmippProtocol):
     """
     Wrapper protocol to Xmipp Movie Alignment by cross-correlation
     """
@@ -77,7 +78,8 @@ class XmippProtMovieCorr(ProtAlignMovies):
                       help="linear (faster but lower quality), "
                            "cubic (slower but more accurate).")
 
-        form.addHidden(params.USE_GPU, params.BooleanParam, default=True,
+        form.addHidden(params.USE_GPU, params.BooleanParam,
+                       default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")
@@ -113,9 +115,10 @@ class XmippProtMovieCorr(ProtAlignMovies):
         #Local alignment params
         group = form.addGroup('Local alignment')
 
-        group.addParam('doLocalAlignment', params.BooleanParam, default=True,
-                      label="Compute local alignment?",
-                      help="If Yes, the protocol will try to determine local shifts, similarly to MotionCor2.")
+        group.addParam('doLocalAlignment', params.BooleanParam,
+                       default=self.isCudaInstalled(),
+                       label="Compute local alignment?",
+                       help="If Yes, the protocol will try to determine local shifts, similarly to MotionCor2.")
 
         group.addParam('autoControlPoints', params.BooleanParam, default=True,
                       label="Auto control points",

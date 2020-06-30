@@ -42,12 +42,12 @@ from xmipp3.convert import (createItemMatrix, writeSetOfParticles,
                             rowToAlignment, setXmippAttributes, xmippToLocation)
 
 from pwem import emlib
-from xmipp3.base import findRow, writeInfoField, readInfoField
+from xmipp3.base import findRow, writeInfoField, readInfoField, XmippProtocol
 from xmipp3.constants import SYM_URL
 import numpy as np
 
 
-class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
+class XmippProtSplitVolumeHierarchical(ProtAnalysis3D, XmippProtocol):
     """
     Construct image groups based on the angular assignment. All images assigned within a solid angle
     are assigned to a class. Classes are not exclusive and an image may be assigned to multiple classes
@@ -61,7 +61,8 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
 
     # --------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
-        form.addHidden(params.USE_GPU, params.BooleanParam, default=True,
+        form.addHidden(params.USE_GPU, params.BooleanParam,
+                       default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

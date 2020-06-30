@@ -40,10 +40,10 @@ from pwem.objects import SetOfClasses2D
 from pwem import emlib
 from xmipp3.convert import (writeSetOfClasses2D, readSetOfVolumes,
                             writeSetOfParticles)
-from xmipp3.base import isMdEmpty
+from xmipp3.base import isMdEmpty, XmippProtocol
 
 
-class XmippProtRansac(ProtInitialVolume):
+class XmippProtRansac(ProtInitialVolume, XmippProtocol):
     """ 
     Computes an initial 3d model from a set of projections/classes 
     using RANSAC algorithm.
@@ -64,7 +64,7 @@ class XmippProtRansac(ProtInitialVolume):
 
     #--------------------------- DEFINE param functions --------------------------------------------        
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

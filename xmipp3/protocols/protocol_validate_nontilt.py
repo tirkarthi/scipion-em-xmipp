@@ -36,6 +36,7 @@ from pwem.objects import Volume
 from pwem.protocols import ProtAnalysis3D
 from pyworkflow.utils.path import moveFile, makePath
 import pwem.emlib.metadata as md
+from xmipp3 import XmippProtocol
 
 from xmipp3.convert import writeSetOfParticles
 
@@ -43,7 +44,7 @@ PROJECTION_MATCHING = 0
 SIGNIFICANT = 1
 
 
-class XmippProtValidateNonTilt(ProtAnalysis3D):
+class XmippProtValidateNonTilt(ProtAnalysis3D, XmippProtocol):
     """    
     Ranks a set of volumes according to their alignment reliability obtained from a clusterability test.
     """
@@ -59,7 +60,7 @@ class XmippProtValidateNonTilt(ProtAnalysis3D):
 
     # --------------------------- DEFINE param functions --------------------------------------------
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

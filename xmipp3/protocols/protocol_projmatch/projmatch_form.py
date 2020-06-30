@@ -34,11 +34,12 @@ from pyworkflow.protocol.params import (PointerParam, BooleanParam, IntParam,
                                         FloatParam, StringParam, Positive, GE,
                                         EnumParam, NumericListParam, TextParam,
                                         DigFreqParam, USE_GPU, GPU_LIST)
+from xmipp3 import XmippProtocol
 from xmipp3.constants import *
                                         
 
 def _defineProjectionMatchingParams(self, form):
-    form.addHidden(USE_GPU, BooleanParam, default=True,
+    form.addHidden(USE_GPU, BooleanParam, default=XmippProtocol.isCudaInstalled(),
                    label="Use GPU for execution",
                    help="This protocol has both CPU and GPU implementation.\
                    Select the one you want to use.")

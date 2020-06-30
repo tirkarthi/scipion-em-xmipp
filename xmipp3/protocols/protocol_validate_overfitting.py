@@ -38,10 +38,11 @@ from pyworkflow.protocol.params import (PointerParam, FloatParam,
                                         StringParam, BooleanParam,
                                         LEVEL_ADVANCED, GPU_LIST, USE_GPU)
 from pwem import emlib
+from xmipp3 import XmippProtocol
 from xmipp3.convert import writeSetOfParticles
 
 
-class XmippProtValidateOverfitting(ProtReconstruct3D):
+class XmippProtValidateOverfitting(ProtReconstruct3D, XmippProtocol):
     """    
     Check how the resolution changes with the number of projections used for 
     3D reconstruction. 
@@ -64,7 +65,7 @@ class XmippProtValidateOverfitting(ProtReconstruct3D):
     # --------------------------- DEFINE param functions --------------------------------------------
 
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

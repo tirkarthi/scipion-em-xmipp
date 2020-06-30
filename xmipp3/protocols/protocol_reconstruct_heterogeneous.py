@@ -49,7 +49,7 @@ from xmipp3.convert import (createItemMatrix, setXmippAttributes,
                             writeSetOfParticles, readSetOfParticles)
 
 
-class XmippProtReconstructHeterogeneous(ProtClassify3D):
+class XmippProtReconstructHeterogeneous(ProtClassify3D, XmippProtocol):
     """3D Reconstruction with heterogeneous datasets"""
     _label = 'significant heterogeneity'
     _lastUpdateVersion = VERSION_2_0
@@ -59,7 +59,7 @@ class XmippProtReconstructHeterogeneous(ProtClassify3D):
 
     # --------------------------- DEFINE param functions --------------------------------------------
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

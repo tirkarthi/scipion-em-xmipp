@@ -40,13 +40,13 @@ from pyworkflow.gui.plotter import Plotter
 from pwem.objects import Volume
 import pwem.emlib.metadata as md
 from pwem.protocols import ProtAnalysis3D
-
+from xmipp3 import XmippProtocol
 
 from xmipp3.convert import writeSetOfParticles, writeSetOfVolumes, \
     getImageLocation
 
 
-class XmippProtMultiRefAlignability(ProtAnalysis3D):
+class XmippProtMultiRefAlignability(ProtAnalysis3D, XmippProtocol):
     """    
     Performs soft alignment validation of a set of particles confronting them
     against a given 3DEM map. This protocol produces particle alignment
@@ -59,7 +59,7 @@ class XmippProtMultiRefAlignability(ProtAnalysis3D):
 
     # --------------------------- DEFINE param functions --------------------------------------------
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

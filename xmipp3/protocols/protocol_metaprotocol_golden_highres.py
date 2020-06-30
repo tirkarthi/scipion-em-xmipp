@@ -41,12 +41,13 @@ import pyworkflow.object as pwobj
 from pyworkflow.protocol import getProtocolFromDb
 from pwem.protocols import EMProtocol
 from pwem.objects import Volume
+from xmipp3 import XmippProtocol
 from xmipp3.convert import readSetOfParticles
 from pwem import emlib
 from xmipp3.protocols import XmippProtReconstructHighRes
 
 
-class XmippMetaProtGoldenHighRes(EMProtocol):
+class XmippMetaProtGoldenHighRes(EMProtocol, XmippProtocol):
     """ Metaprotocol to run golden version of highres"""
     _label = 'metaprotocol golden highres'
     _lastUpdateVersion = VERSION_2_0
@@ -78,7 +79,7 @@ class XmippMetaProtGoldenHighRes(EMProtocol):
 
     #--------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")

@@ -37,6 +37,7 @@ import pyworkflow.object as pwobj
 
 from pwem.protocols import EMProtocol
 from pwem.objects import Volume
+from xmipp3 import XmippProtocol
 
 from xmipp3.protocols import XmippProtSplitVolumeHierarchical
 from xmipp3.protocols import XmippProtReconstructHeterogeneous
@@ -44,7 +45,7 @@ from xmipp3.protocols import XmippMetaProtCreateOutput
 from xmipp3.protocols import XmippMetaProtCreateSubset
 
 
-class XmippMetaProtDiscreteHeterogeneityScheduler(EMProtocol):
+class XmippMetaProtDiscreteHeterogeneityScheduler(EMProtocol, XmippProtocol):
     """ Metaprotocol to run together all the protocols to discover discrete
     heterogeneity in a set of particles
      """
@@ -74,7 +75,7 @@ class XmippMetaProtDiscreteHeterogeneityScheduler(EMProtocol):
 
     # --------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
-        form.addHidden(USE_GPU, BooleanParam, default=True,
+        form.addHidden(USE_GPU, BooleanParam, default=self.isCudaInstalled(),
                        label="Use GPU for execution",
                        help="This protocol has both CPU and GPU implementation.\
                        Select the one you want to use.")
