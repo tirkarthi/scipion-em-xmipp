@@ -255,12 +255,12 @@ def installDeepLearningToolkit(plugin, env):
                                           % (installDLvars['modelsPrefix'],
                                              now.day, now.month, now.year)})
 
-    modelsDownloadCmd = ("rm %(modelsPrefix)s_* %(xmippLibToken)s 2>/dev/null ; "
-                         "echo 'Downloading pre-trained models...' ; "
-                         "%(syncBin)s update %(modelsDir)s %(modelsUrl)s DLmodels && "
-                         "touch %(modelsTarget)s && echo ' > %(afterMsgs)s'"
-                         % installDLvars,                # End of command
-                         installDLvars['modelsTarget'])  # Target
+#     modelsDownloadCmd = ("rm %(modelsPrefix)s_* %(xmippLibToken)s 2>/dev/null ; "
+#                          "echo 'Downloading pre-trained models...' ; "
+#                          "%(syncBin)s update %(modelsDir)s %(modelsUrl)s DLmodels && "
+#                          "touch %(modelsTarget)s && echo ' > %(afterMsgs)s'"
+#                          % installDLvars,                # End of command
+#                          installDLvars['modelsTarget'])  # Target
 
     xmippInstallCheck = ("if ls %(libXmipp)s > /dev/null ; "
                          "then touch %(xmippLibToken)s; echo ' > %(preMsgsStr)s' ; "
@@ -269,6 +269,6 @@ def installDeepLearningToolkit(plugin, env):
                          " fi" % installDLvars,           # End of command
                          installDLvars['xmippLibToken'])  # Target
 
-#     env.addPackage(XMIPP_DLTK_NAME, version='0.2', urlSuffix='external',
-#                    commands=[xmippInstallCheck]+cmdsInstall+[modelsDownloadCmd],
-#                    deps=[], tar=XMIPP_DLTK_NAME+'.tgz')
+    env.addPackage(XMIPP_DLTK_NAME, version='0.2', urlSuffix='external',
+                   commands=[xmippInstallCheck]+cmdsInstall+[modelsDownloadCmd],
+                   deps=[], tar=XMIPP_DLTK_NAME+'.tgz')
