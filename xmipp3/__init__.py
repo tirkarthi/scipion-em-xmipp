@@ -270,5 +270,5 @@ def installDeepLearningToolkit(plugin, env):
                          installDLvars['xmippLibToken'])  # Target
 
     env.addPackage(XMIPP_DLTK_NAME, version='0.2', urlSuffix='external',
-                   commands=[xmippInstallCheck]+cmdsInstall,#+[modelsDownloadCmd],
-                   deps=[])#, tar=XMIPP_DLTK_NAME+'.tgz')
+                   commands=[xmippInstallCheck]+cmdsInstall, #+[modelsDownloadCmd],
+                   deps=[], tar=XMIPP_DLTK_NAME+'.tgz')
