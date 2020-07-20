@@ -132,7 +132,7 @@ class XmippMetaProtDiscreteHeterogeneityScheduler(EMProtocol):
         form.addParam('class2dIterations', IntParam, default=5,
                       expertLevel=LEVEL_ADVANCED,
                       condition="directionalClasses > 1",
-                      label='Number of CL2D iterations')
+                      label='Number of 2D classification iterations')
         form.addParam('splitVolume', BooleanParam, label="Split volume",
                       condition="directionalClasses > 1", default=True,
                       help='If desired, the protocol can use the directional classes calculated in this protocol to divide the input volume '

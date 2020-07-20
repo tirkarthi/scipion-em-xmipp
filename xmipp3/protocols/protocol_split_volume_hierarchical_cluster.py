@@ -209,6 +209,20 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
 
         writeSetOfParticles(inputParticles, self._getExpParticlesFn())
 
+        inputmd = md.MetaData(self._getExpParticlesFn())
+        outmd = md.MetaData()
+        for row in md.iterRows(inputmd):
+            rowOut=row
+            flip = row.getValue(emlib.MDL_FLIP)
+            if flip:
+                fnIm = row.getValue(emlib.MDL_IMAGE)
+                args = '-i %s -o %s --flip --apply_transform '%(fnIm, fnIm)
+                self.runJob("xmipp_transform_geometry", args,
+                            numberOfMpi=1)
+                rowOut.setValue(emlib.MDL_FLIP, False)
+            rowOut.addToMd(outmd)
+        outmd.write(self._getExpParticlesFn(), md.MD_OVERWRITE)
+
         img = ImageHandler()
         img.convert(inputVolume, self._getInputVolFn())
 
@@ -256,7 +270,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
         args += '-o %s ' % self._getExtraPath("neighbours.xmd")
         args += '--dist %f ' % self.angularDistance
         args += '--sym %s ' % self.symmetryGroup
-        args += '--check_mirrors '
+        #args += '--check_mirrors '
 
         # Compute several groups of the experimental images into
         # different angular neighbourhoods
@@ -338,6 +352,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
                         (projRef, self.class2dIterations, Nclasses)
                 args += "--distance correlation --classicalMultiref "
                 args += "--maxShift %f " % self.maxShift
+                args += "--dontMirrorImages "
                 try:
                     self.runJob("xmipp_classify_CL2D", args, numberOfMpi=self.numberOfMpi.get() * self.numberOfThreads.get())
                 except:
@@ -523,9 +538,9 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
 
         # Local angular assignment
         fnAnglesLocalStk = self._getPath("directional_local_classes.stk")
-        args = "-i %s -o %s --sampling %f --Rmax %d --padding %d --ref %s --max_resolution %f --applyTo image1 --Nsimultaneous %d" % \
+        args = "-i %s -o %s --sampling %f --Rmax %d --padding %d --ref %s --max_resolution %f --applyTo image1 " % \
                (fnAngles, fnAnglesLocalStk, newTs, newXdim / 2, 2, fnVol,
-                self.targetResolution, 8)
+                self.targetResolution)
         args += " --optimizeShift --max_shift %f" % maxShift
         args += " --optimizeAngles --max_angular_change %f" % self.angularDistance
         self.runJob("xmipp_angular_continuous_assign2", args,
