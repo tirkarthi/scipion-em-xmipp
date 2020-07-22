@@ -37,6 +37,7 @@ from pwem.constants import ALIGN_PROJ
 from pwem.objects import Image, Volume
 from pwem.protocols import ProtAnalysis3D
 import pwem.emlib.metadata as md
+from pyworkflow.protocol.constants import STEPS_PARALLEL
 
 from xmipp3.convert import (createItemMatrix, writeSetOfParticles,
                             rowToAlignment, setXmippAttributes, xmippToLocation)
@@ -45,6 +46,7 @@ from pwem import emlib
 from xmipp3.base import findRow, writeInfoField, readInfoField
 from xmipp3.constants import SYM_URL
 import numpy as np
+
 
 
 class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
@@ -58,6 +60,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
 
     def __init__(self, *args, **kwargs):
         ProtAnalysis3D.__init__(self, *args, **kwargs)
+        self.stepsExecutionMode = STEPS_PARALLEL
 
     # --------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
@@ -171,32 +174,48 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
                       expertLevel=params.LEVEL_ADVANCED,
                       help="Number of threads used for the GPU version of the Fourier Reconstruction")
 
-        form.addParallelSection(threads=0, mpi=8)
+        form.addParallelSection(threads=8, mpi=1)
 
     # --------------------------- INSERT steps functions ------------------------
 
     def _insertAllSteps(self):
-        self._insertFunctionStep('convertInputStep',
+        firstStepId = self._insertFunctionStep('convertInputStep',
                                  self.inputParticles.get().getObjId(),
                                  self.inputVolume.get().getObjId())
 
-        self._insertFunctionStep('constructGroupsStep',
+        secondStepId = self._insertFunctionStep('constructGroupsStep',
                                  self.inputParticles.get().getObjId(),
                                  self.angularSampling.get(),
                                  self.angularDistance.get(),
-                                 self.symmetryGroup.get())
+                                 self.symmetryGroup.get(), prerequisites=[firstStepId])
 
-        self._insertFunctionStep('classifyGroupsStep')
+        self.classCount = 0
+        self.classImages = set()
+        deps = []
+        if self.useGpu.get():
+            if self.useQueueForSteps() or self.useQueue():
+                myStr = os.environ["CUDA_VISIBLE_DEVICES"]
+            else:
+                myStr=self.gpuList.get()
+                os.environ["CUDA_VISIBLE_DEVICES"] = myStr
+
+        numGPU = myStr.split(',')
+        for idx, gpuId in enumerate(numGPU):
+            stepId = self._insertFunctionStep("classifyGroupsStep", idx, gpuId, len(numGPU), prerequisites=[secondStepId])
+            deps.append(stepId)
+
+        stepId = self._insertFunctionStep('gatheringClassifyResultStep', prerequisites=deps)
+
         if self.directionalClasses.get() == 1 and self.homogeneize.get() >= 0:
-            self._insertFunctionStep('homogeneizeStep')
+            stepId = self._insertFunctionStep('homogeneizeStep', prerequisites=[stepId])
 
-        self._insertFunctionStep('refineAnglesStep')
+        stedId = self._insertFunctionStep('refineAnglesStep', prerequisites=[stepId])
 
         if self.splitVolume and self.directionalClasses.get() > 1:
-            self._insertFunctionStep("splitVolumeStep")
+            stepId = self._insertFunctionStep("splitVolumeStep", prerequisites=[stepId])
 
-        self._insertFunctionStep('cleaningStep')
-        self._insertFunctionStep('createOutputStep')
+        stepId = self._insertFunctionStep('cleaningStep', prerequisites=[stepId])
+        self._insertFunctionStep('createOutputStep', prerequisites=[stepId])
 
     # --------------------------- STEPS functions -------------------------------
     def convertInputStep(self, particlesId, volId):
@@ -277,7 +296,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
         self.runJob("xmipp_angular_neighbourhood", args, numberOfMpi=1)
 
     def classifyOneGroup(self, projNumber, projMdBlock, projRef,
-                         mdClasses, mdImages):
+                         mdClasses, mdImages, gpuId):
         """ Classify one of the neighbourhood groups if not empty.
          Class information will be stored in output metadata: mdOut
         """
@@ -295,29 +314,24 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
         if blockSize / Nclasses < 10:
             return
 
-        if self.useGpu.get():
-            count=0
-            GpuListCuda=''
-            if self.useQueueForSteps() or self.useQueue():
-                GpuList = os.environ["CUDA_VISIBLE_DEVICES"]
-                GpuList = GpuList.split(",")
-                for elem in GpuList:
-                    GpuListCuda = GpuListCuda+str(count)+' '
-                    count+=1
-            else:
-                GpuList = ' '.join([str(elem) for elem in self.getGpuList()])
-                GpuListAux = ''
-                for elem in self.getGpuList():
-                    GpuListCuda = GpuListCuda+str(count)+' '
-                    GpuListAux = GpuListAux+str(elem)+','
-                    count+=1
-                os.environ["CUDA_VISIBLE_DEVICES"] = GpuListAux
+        if self.useGpu.get() and self.class2dIterations.get()>2:
 
             fnDir = self._getExtraPath("direction_%s" % projNumber)
             if not exists(fnDir):
                 makePath(fnDir)
 
-            for i in range(self.class2dIterations.get()):
+            # Run CL2D classification for the images assigned to one direction
+            #args = "-i %s " % fnToUse
+            #args += "--odir %s " % fnDir
+            #args += "--ref0 %s --iter %d --nref %d " % \
+            #        (projRef, 2, Nclasses)
+            #args += "--distance correlation --classicalMultiref "
+            #args += "--maxShift %f " % self.maxShift
+            #args += "--dontMirrorImages "
+            #self.runJob("xmipp_classify_CL2D", args, numberOfMpi=self.numberOfMpi.get() * self.numberOfThreads.get())
+
+            for i in range(0, self.class2dIterations.get()):
+                #mdRefName = join(fnDir,"level_%02d"%(i-1), "class_classes.xmd")
                 mdRefName = join(fnDir, 'reference.xmd')
                 if i==0:
                     mdRef = md.MetaData()
@@ -333,7 +347,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
                     makePath(join(fnDir,"level_%02d"%i))
                 args = '-i %s -r %s -o images.xmd --odir %s' \
                        ' --keepBestN 1 --oUpdatedRefs %s ' % (fnToUse, mdRefName, join(fnDir,"level_%02d"%i), 'class_classes')
-                args += ' --dev %s ' %GpuListCuda
+                args += ' --dev %s ' %(gpuId)
                 self.runJob("xmipp_cuda_align_significant", args, numberOfMpi=1)
             copy(join(fnDir,"level_%02d"%(self.class2dIterations.get()-1), "images.xmd"), join(fnDir,"images.xmd"))
 
@@ -353,10 +367,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
                 args += "--distance correlation --classicalMultiref "
                 args += "--maxShift %f " % self.maxShift
                 args += "--dontMirrorImages "
-                try:
-                    self.runJob("xmipp_classify_CL2D", args, numberOfMpi=self.numberOfMpi.get() * self.numberOfThreads.get())
-                except:
-                    return
+                self.runJob("xmipp_classify_CL2D", args, numberOfMpi=self.numberOfThreads.get())
 
             # After CL2D the stk and xmd files should be produced
             classesXmd = join(fnDir, "level_%02d/class_classes.xmd" % Nlevels)
@@ -377,52 +388,65 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
         args = "-i %s_alignment.xmd --apply_transform" % fnAlignRoot
         self.runJob("xmipp_transform_geometry", args, numberOfMpi=1)
 
-        for classNo in range(1, Nclasses + 1):
-            localImagesMd = emlib.MetaData("class%06d_images@%s"
-                                           % (classNo, classesXmd))
 
-            # New class detected
-            self.classCount += 1
-            # Check which images have not been assigned yet to any class
-            # and assign them to this new class
-            for objId in localImagesMd:
-                imgId = localImagesMd.getValue(emlib.MDL_ITEM_ID, objId)
-                # Add images not classify yet and store their class number
-                if imgId not in self.classImages:
-                    self.classImages.add(imgId)
-                    newObjId = mdImages.addObject()
-                    mdImages.setValue(emlib.MDL_ITEM_ID, imgId, newObjId)
-                    mdImages.setValue(emlib.MDL_REF2, self.classCount, newObjId)
-
-            newClassId = mdClasses.addObject()
-            mdClasses.setValue(emlib.MDL_REF, projNumber, newClassId)
-            mdClasses.setValue(emlib.MDL_REF2, self.classCount, newClassId)
-            mdClasses.setValue(emlib.MDL_IMAGE, "%d@%s" %
-                               (classNo, classesStk), newClassId)
-            mdClasses.setValue(emlib.MDL_IMAGE1, projRef, newClassId)
-            mdClasses.setValue(emlib.MDL_CLASS_COUNT, localImagesMd.size(),
-                               newClassId)
-
-    def classifyGroupsStep(self):
-        # Create two metadatas, one for classes and another one for images
-        mdClasses = emlib.MetaData()
-        mdImages = emlib.MetaData()
+    def gatheringClassifyResultStep(self):
 
         fnNeighbours = self._getExtraPath("neighbours.xmd")
         fnGallery = self._getExtraPath("gallery.stk")
+        Nclasses = self.directionalClasses.get()
+        Nlevels = int(math.ceil(math.log(Nclasses) / math.log(2)))
+        mdImages = emlib.MetaData()
+        mdClasses = emlib.MetaData()
 
-        self.classCount = 0
-        self.classImages = set()
+        for i, block in enumerate(emlib.getBlocksInMetaDataFile(fnNeighbours)):
 
-        for block in emlib.getBlocksInMetaDataFile(fnNeighbours):
-            # Figure out the projection number from the block name
             projNumber = int(block.split("_")[1])
+            projRef = "%06d@%s" % (projNumber, fnGallery)
+            fnDir = self._getExtraPath("direction_%s" % projNumber)
+            if self.useGpu.get():
+                classesXmd = join(fnDir, "level_%02d/class_classes.xmd" % (self.class2dIterations.get() - 1))
+                classesStk = join(fnDir, "level_%02d/class_classes.stk" % (self.class2dIterations.get() - 1))
+            else:
+                classesXmd = join(fnDir, "level_%02d/class_classes.xmd" % Nlevels)
+                classesStk = join(fnDir, "level_%02d/class_classes.stk" % Nlevels)
 
-            self.classifyOneGroup(projNumber,
-                                  projMdBlock="%s@%s" % (block, fnNeighbours),
-                                  projRef="%06d@%s" % (projNumber, fnGallery),
-                                  mdClasses=mdClasses,
-                                  mdImages=mdImages)
+            if not exists(classesStk):
+                continue
+
+            flag_no=0
+            localImagesMd = emlib.MetaData("classes@"+classesXmd)
+            for objId in localImagesMd:
+                clCount = localImagesMd.getValue(emlib.MDL_CLASS_COUNT, objId)
+                if clCount==0:
+                    flag_no=1
+            if flag_no==1:
+                continue
+
+            for classNo in range(1, Nclasses + 1):
+                localImagesMd = emlib.MetaData("class%06d_images@%s"
+                                               % (classNo, classesXmd))
+
+                # New class detected
+                self.classCount += 1
+                # Check which images have not been assigned yet to any class
+                # and assign them to this new class
+                for objId in localImagesMd:
+                    imgId = localImagesMd.getValue(emlib.MDL_ITEM_ID, objId)
+                    # Add images not classify yet and store their class number
+                    if imgId not in self.classImages:
+                        self.classImages.add(imgId)
+                        newObjId = mdImages.addObject()
+                        mdImages.setValue(emlib.MDL_ITEM_ID, imgId, newObjId)
+                        mdImages.setValue(emlib.MDL_REF2, self.classCount, newObjId)
+
+                newClassId = mdClasses.addObject()
+                mdClasses.setValue(emlib.MDL_REF, projNumber, newClassId)
+                mdClasses.setValue(emlib.MDL_REF2, self.classCount, newClassId)
+                mdClasses.setValue(emlib.MDL_IMAGE, "%d@%s" %
+                                   (classNo, classesStk), newClassId)
+                mdClasses.setValue(emlib.MDL_IMAGE1, projRef, newClassId)
+                mdClasses.setValue(emlib.MDL_CLASS_COUNT, localImagesMd.size(),
+                                   newClassId)
 
         galleryMd = emlib.MetaData(self._getExtraPath("gallery.doc"))
         # Increment the reference number to starts from 1
@@ -442,6 +466,36 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
         fnDirectionalImages = self._getDirectionalImagesFn()
         self.info("Writing images info to: %s" % fnDirectionalImages)
         mdImages.write(fnDirectionalImages)
+
+
+    def classifyGroupsStep(self, thIdx, gpuId, totalGpu):
+        # Create two metadatas, one for classes and another one for images
+        mdClasses = emlib.MetaData()
+        mdImages = emlib.MetaData()
+
+        fnNeighbours = self._getExtraPath("neighbours.xmd")
+        fnGallery = self._getExtraPath("gallery.stk")
+
+        #self.classCount = 0
+        #self.classImages = set()
+
+        for i, block in enumerate(emlib.getBlocksInMetaDataFile(fnNeighbours)):
+
+            idx = i + 1
+            if (idx % totalGpu) != thIdx:
+                continue
+
+            # Figure out the projection number from the block name
+            projNumber = int(block.split("_")[1])
+
+            self.classifyOneGroup(projNumber,
+                                  projMdBlock="%s@%s" % (block, fnNeighbours),
+                                  projRef="%06d@%s" % (projNumber, fnGallery),
+                                  mdClasses=mdClasses,
+                                  mdImages=mdImages,
+                                  gpuId = gpuId)
+
+
 
     def homogeneizeStep(self):
         minClass = self.homogeneize.get()
@@ -499,7 +553,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
                (fnVol, fnGallery, 5.0, self.symmetryGroup)
         args += " --compute_neighbors --angular_distance -1 --experimental_images %s" % fnDirectional
         self.runJob("xmipp_angular_project_library", args,
-                    numberOfMpi=self.numberOfMpi.get() * self.numberOfThreads.get())
+                    numberOfMpi=self.numberOfThreads.get())
 
         # Global angular assignment
         maxShift = 0.15 * newXdim
@@ -508,7 +562,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
             args = '-i %s --initgallery %s --maxShift %d --odir %s --dontReconstruct --useForValidation 0' % \
                (fnDirectional, fnGalleryMd, maxShift, fnTmpDir)
             self.runJob('xmipp_reconstruct_significant', args,
-                    numberOfMpi=self.numberOfMpi.get() * self.numberOfThreads.get())
+                    numberOfMpi=self.numberOfThreads.get())
         else:
             count=0
             GpuListCuda=''
@@ -544,7 +598,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
         args += " --optimizeShift --max_shift %f" % maxShift
         args += " --optimizeAngles --max_angular_change %f" % self.angularDistance
         self.runJob("xmipp_angular_continuous_assign2", args,
-                    numberOfMpi=self.numberOfMpi.get() * self.numberOfThreads.get())
+                    numberOfMpi=self.numberOfThreads.get())
         moveFile(self._getPath("directional_local_classes.xmd"),
                  self._getDirectionalClassesFn())
 
@@ -595,7 +649,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
         matrixCoOc=np.zeros((ref2Max, ref2Max))
 
         mpiCommand = self.getHostConfig().mpiCommand.get()
-        mpiCommand2 = mpiCommand % {'JOB_NODES': self.numberOfMpi.get() * self.numberOfThreads.get(),
+        mpiCommand2 = mpiCommand % {'JOB_NODES': self.numberOfThreads.get(),
                                    'COMMAND': ''}
         # print(mpiCommand2)
         # print(self.numberOfMpi.get())
