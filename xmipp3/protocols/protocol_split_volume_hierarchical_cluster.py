@@ -602,7 +602,7 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
         moveFile(self._getPath("directional_local_classes.xmd"),
                  self._getDirectionalClassesFn())
 
-        cleanPattern(self._getExtraPath("direction_*"))
+        #cleanPattern(self._getExtraPath("direction_*"))
 
     def runReconstruction(self, fnXmd, fnVol):
         args = "-i %s -o %s --max_resolution 0.25 --sym %s -v 0" % \
@@ -732,6 +732,8 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
         cleanPattern(self._getExtraPath("split00*"))
 
     def createOutputStep(self):
+
+        cleanPattern(self._getExtraPath("direction_*"))
 
         inputParticles = self.inputParticles.get()
         # if not self._useSeveralClasses():
