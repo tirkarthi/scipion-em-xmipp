@@ -611,10 +611,10 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
             args += " --fast"
         if self.useGpu.get():
             #AJ to make it work with and without queue system
-            if self.numberOfMpi.get()>1:
+            if self.fr_gpu_mpi.get()>1:
                 N_GPUs = len((self.gpuList.get()).split(','))
                 args += ' -gpusPerNode %d' % N_GPUs
-                args += ' -threadsPerGPU %d' % max(self.numberOfThreads.get(),4)
+                args += ' -threadsPerGPU %d' % max(self.fr_gpu_threads.get(),4)
             count=0
             GpuListCuda=''
             if self.useQueueForSteps() or self.useQueue():
@@ -630,10 +630,10 @@ class XmippProtSplitVolumeHierarchical(ProtAnalysis3D):
                     GpuListAux = GpuListAux+str(elem)+','
                     count+=1
                 os.environ["CUDA_VISIBLE_DEVICES"] = GpuListAux
-            if self.numberOfMpi.get()==1:
+            if self.fr_gpu_mpi.get()==1:
                 args += ' --device %s' % GpuListCuda
                 args += ' --thr %d' % self.fr_gpu_threads.get()
-            if self.numberOfMpi.get()>1:
+            if self.fr_gpu_mpi.get()>1:
                 self.runJob('xmipp_cuda_reconstruct_fourier', args, numberOfMpi=len((self.gpuList.get()).split(','))+1)
             else:
                 self.runJob('xmipp_cuda_reconstruct_fourier', args)

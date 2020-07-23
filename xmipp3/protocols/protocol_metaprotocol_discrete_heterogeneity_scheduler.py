@@ -231,7 +231,8 @@ class XmippMetaProtDiscreteHeterogeneityScheduler(EMProtocol):
                     Niter=self.Niter.get(),
                     Nrec=self.Nrec.get(),
                     useGpu=self.useGpu.get(),
-                    gpuList=self.gpuList.get())
+                    gpuList=self.gpuList.get(),
+                    fr_gpu_mpi=len(self.gpuList.get())+1)
 
                 previousSplitProt = self
                 newSubsetNameSplitVol = 'outputVolumesInit'

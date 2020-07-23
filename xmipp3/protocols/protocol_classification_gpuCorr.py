@@ -99,6 +99,12 @@ class XmippProtGpuCrrCL2D(ProtAlign2D):
                            'If *No*, all the generated classes will be '
                            'balanced',
                       expertLevel=const.LEVEL_ADVANCED,)
+        form.addParam('maxCLimgs', params.IntParam, default=5000,
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label='Max Number of images to make the splitting',
+                      help='If there are more than this number of images, '
+                           'then a random subset of this size is taken. Set to -1'
+                           'to disable this option.')
         form.addParallelSection(threads=0, mpi=8)
 
 
@@ -414,6 +420,7 @@ class XmippProtGpuCrrCL2D(ProtAlign2D):
                             'outputClassesFileNoExt': filename[:-4],
                             'auxOut': join(self._getExtraPath(), 'level%03d'
                                            % level, 'flipReferences.xmd'),
+                            'fnToUse': self._getTmpPath("subsetImages.xmd"),
                             }
         else:
             filename = 'general_level%03d' % level + '_classes.xmd'
@@ -440,17 +447,24 @@ class XmippProtGpuCrrCL2D(ProtAlign2D):
                 self.runJob("xmipp_cuda_align_significant", args % self._params, numberOfMpi=1)
 
         else:
+            blockSize = md.getSize(imgsExp)
+            fnToUse = self._getTmpPath("subsetImages.xmd")
+            if self.maxCLimgs>0 and blockSize > self.maxCLimgs:
+                self.runJob("xmipp_metadata_utilities",
+                            "-i %s -o %s --operate random_subset %d" \
+                            % (imgsExp, fnToUse, self.maxCLimgs),
+                            numberOfMpi=1)
+            else:
+                copy(imgsExp, fnToUse)
+
             self._params['Nrefs'] = Nrefs
             self._params['cl2dDir'] = self._getExtraPath(join('level%03d' % level))
             self._params['cl2dDirNew'] = self._getExtraPath(join('level%03d' % level, "level_00"))
-            args='-i %(imgsExp)s --ref0 %(imgsRef)s --nref %(Nrefs)d '\
+            args='-i %(fnToUse)s --ref0 %(imgsRef)s --nref %(Nrefs)d '\
                  '--iter 1 --distance correlation --classicalMultiref '\
                  '--maxShift %(maxshift)d --odir %(cl2dDir)s --dontMirrorImages '
-            try:
-                self.runJob("xmipp_classify_CL2D",
-                            args % self._params, numberOfMpi=self.numberOfMpi.get())
-            except:
-                return
+            self.runJob("xmipp_classify_CL2D",
+                        args % self._params, numberOfMpi=self.numberOfMpi.get())
 
             if flag_split:
                 copy(self._getExtraPath(join('level%03d' % level,
