@@ -190,7 +190,7 @@ def connectivityChains(seqs, individual, num_regions, cMat, idi):
         else:
             aux = sys.maxsize
         score[idx] = aux
-    score = np.amax(score) / (50 * num_regions)
+    score = np.amax(score) / (np.amax(cMat)*num_regions)
     return score, idi
 
 @njit
@@ -244,7 +244,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         num_generations = self.generations.get()
         num_parents = self.parents.get()
         self.cMat, self.regionsContactBg = self.connectivityMatrix()
-        print(self.regionsContactBg)
+        # print(self.regionsContactBg)
 
         mean_density_prot = 8.1325e-04  # KDa / (A^3)
         mean_mass_aa = 0.110  # KDa
@@ -259,7 +259,7 @@ class XmippProtModelGA(ProtAnalysis3D):
             for aa in seq:
                 vol += bulk[aa]
             self.submass.append(vol)
-        print(self.submass)
+        # print(self.submass)
         self.submass = np.asarray(self.submass)
         self.submass /= (mean_density_prot / sampling_rate)
 
@@ -279,14 +279,14 @@ class XmippProtModelGA(ProtAnalysis3D):
             self.chainHidro.append(hidro)
         self.chainHidro = np.asarray(self.chainHidro)
         self.chainHidro /= np.sum(self.chainHidro)
-        print(self.chainHidro)
+        # print(self.chainHidro)
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
-            # score_population = self.massScore(new_population)
-            # score_population += self.connectivityScore(new_population)
-            # score_population += self.connectivityScoreChain(new_population)
-            score_population = self.hidrophobicityScore(new_population)
+            score_population = self.massScore(new_population)
+            score_population += self.connectivityScore(new_population)
+            score_population += self.connectivityScoreChain(new_population)
+            score_population += self.hidrophobicityScore(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], self.num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
@@ -295,10 +295,10 @@ class XmippProtModelGA(ProtAnalysis3D):
             new_population[parents.shape[0]:, :] = offspring_mutation
 
             # FIXME: Probably this can be removed
-            # score_population = self.massScore(new_population)
-            # score_population += self.connectivityScore(new_population)
-            # score_population += self.connectivityScoreChain(new_population)
-            score_population = self.hidrophobicityScore(new_population)
+            score_population = self.massScore(new_population)
+            score_population += self.connectivityScore(new_population)
+            score_population += self.connectivityScoreChain(new_population)
+            score_population += self.hidrophobicityScore(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
