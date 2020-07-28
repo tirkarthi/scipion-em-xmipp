@@ -121,7 +121,13 @@ class XmippProtStrGpuCrrCL2D(ProtAlign2D):
                       label='Use CL2D',
                       help='If you set to *Yes*, you will use CL2D (CPU) '
                            'to make the split process',
-                      expertLevel=const.LEVEL_ADVANCED,)
+                      expertLevel=const.LEVEL_ADVANCED)
+        form.addParam('maxCLimgs', params.IntParam, default=5000,
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label='Max Number of images to make the splitting',
+                      help='If there are more than this number of images, '
+                           'then a random subset of this size is taken. Set to -1'
+                           'to disable this option.')
         form.addParallelSection(threads=0, mpi=8)
 
 
@@ -588,9 +594,20 @@ class XmippProtStrGpuCrrCL2D(ProtAlign2D):
                             'rootFn': classesOut.split('/')[-1].replace('.xmd', ''),
                             'keepBest': self.keepBest.get(),
                             'outClassesCuda': fileTocopy,
+                            'fnToUse': self._getTmpPath("subsetImages.xmd"),
                             }
 
-            args = '-i %(imgsExp)s --ref0 %(imgsRef)s --nref %(Nrefs)d ' \
+            blockSize = md.getSize(imgsExp)
+            fnToUse = self._getTmpPath("subsetImages.xmd")
+            if self.maxCLimgs>0 and blockSize > self.maxCLimgs:
+                self.runJob("xmipp_metadata_utilities",
+                            "-i %s -o %s --operate random_subset %d" \
+                            % (imgsExp, fnToUse, self.maxCLimgs),
+                            numberOfMpi=1)
+            else:
+                copy(imgsExp, fnToUse)
+
+            args = '-i %(fnToUse)s --ref0 %(imgsRef)s --nref %(Nrefs)d ' \
                    '--iter 1 --distance correlation --classicalMultiref ' \
                    '--maxShift %(maxshift)d --odir %(outDir)s --oroot %(' \
                    'rootFn)s --dontMirrorImages '
