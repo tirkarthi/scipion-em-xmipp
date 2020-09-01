@@ -181,17 +181,51 @@ def connectivityChains(seqs, individual, num_regions, cMat, idi):
         secondChain = np.where(individual == (idx + 2))
         if len(firstChain[0]) > 0 and len(secondChain[0]) > 0:
             aux = 0
+            count = 0
             for idm in firstChain[0]:
-                interRegionScore = sys.maxsize
                 for idn in secondChain[0]:
-                    if cMat[idm, idn] < interRegionScore:
-                        interRegionScore = cMat[idm, idn]
-                aux += interRegionScore
+                    # if cMat[idm, idn] < interRegionScore:
+                    if cMat[idm, idn] != num_regions:
+                        aux += cMat[idm, idn]
+                        count += 1
+            # # Comentar el if para buscar las zonas sin ninguna conexion
+            # if count == 0:
+            #     aux = sys.maxsize
+            # else:
+            #     aux /= count * num_regions
         else:
             aux = sys.maxsize
         score[idx] = aux
-    score = np.amax(score) / (np.amax(cMat)*num_regions)
-    return score, idi
+    return np.sum(score) / (len(score)), idi
+
+@njit
+def connectivityChains2(seqs, individual, num_regions, cMat, idi):
+    cc_mat = np.asarray([[0, 1, 1, 0], [1, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0]])
+    score = np.ones(len(seqs) - 1)
+    for idr in range(len(cc_mat)):
+        scores_row = []
+        row = cc_mat[idr]
+        for idc in range(len(row)):
+            if row[idc] == 1:
+                firstChain = np.where(individual == (idr + 1))
+                secondChain = np.where(individual == (idc + 1))
+                if len(firstChain[0]) > 0 and len(secondChain[0]) > 0:
+                    aux = 0
+                    count = 0
+                    for idm in firstChain[0]:
+                        for idn in secondChain[0]:
+                            if cMat[idm, idn] != num_regions:
+                                aux += cMat[idm, idn]
+                                count += 1
+                    if count == 0:
+                        aux = 0
+                    else:
+                        aux /= count * num_regions
+                else:
+                    aux = sys.maxsize
+                scores_row.append(aux)
+        score[idr] = max(scores_row)
+    return np.sum(score) / (len(score)), idi
 
 @njit
 def hidrophobicityIndividual(chainHidro, individual, regionsContactBg, idi):
@@ -247,7 +281,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         # print(self.regionsContactBg)
 
         mean_density_prot = 8.1325e-04  # KDa / (A^3)
-        mean_mass_aa = 0.110  # KDa
+        # mean_mass_aa = 0.110  # KDa
         sampling_rate = self.inputMask.get().getSamplingRate() ** 3  # A^3 / voxel
         mean_density_prot *= sampling_rate
 
@@ -356,7 +390,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         score_population = np.zeros(len(population))
         # for idi, individual in enumerate(population):
         out = Parallel(n_jobs=self.numberOfThreads.get())\
-            (delayed(connectivityChains)(self.seqs, individual, self.num_regions, self.cMat, idi)
+            (delayed(connectivityChains2)(self.seqs, individual, self.num_regions, self.cMat, idi)
              for idi, individual in enumerate(population))
 
         for score, pos in out:
