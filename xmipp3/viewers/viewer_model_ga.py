@@ -24,7 +24,6 @@
 # *
 # **************************************************************************
 
-import os, glob
 import numpy as np
 from matplotlib import cm
 
@@ -33,9 +32,8 @@ import pyworkflow.viewer as pwviewer
 import pwem.viewers.views as vi
 from pwem.viewers.viewer_chimera import ChimeraView
 
-from pwem.emlib.image import ImageHandler
-
 from ..protocols.protocol_model_ga import XmippProtModelGA
+
 
 class XmippProtModelGAViewer(pwviewer.Viewer):
     """ Wrapper to visualize the output of GA modeling
