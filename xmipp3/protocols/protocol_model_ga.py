@@ -199,14 +199,14 @@ def connectivityChains(seqs, individual, num_regions, cMat, idi):
     return np.sum(score) / (len(score)), idi
 
 @njit
-def connectivityChains2(seqs, individual, num_regions, cMat, idi):
-    cc_mat = np.asarray([[0, 1, 1, 0], [1, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0]])
+def connectivityChains2(seqs, individual, num_regions, cMat, dMat, idi):
+    cc_mat = np.asarray([[-1, 1, 1, 0], [1, -1, 0, 1], [1, 0, -1, 0], [0, 1, 0, -1]])
     score = np.ones(len(seqs) - 1)
     for idr in range(len(cc_mat)):
         scores_row = []
         row = cc_mat[idr]
         for idc in range(len(row)):
-            if row[idc] == 1:
+            # if row[idc] == 1:
                 firstChain = np.where(individual == (idr + 1))
                 secondChain = np.where(individual == (idc + 1))
                 if len(firstChain[0]) > 0 and len(secondChain[0]) > 0:
@@ -214,13 +214,18 @@ def connectivityChains2(seqs, individual, num_regions, cMat, idi):
                     count = 0
                     for idm in firstChain[0]:
                         for idn in secondChain[0]:
-                            if cMat[idm, idn] != num_regions:
-                                aux += cMat[idm, idn]
-                                count += 1
+                            if row[idc] == 1:
+                                #if cMat[idm, idn] != num_regions:
+                                    aux += cMat[idm, idn]
+                                    count += 1
+                            else:
+                                #if dMat[idm, idn] != num_regions:
+                                    aux += dMat[idm, idn]
+                                    count += 1
                     if count == 0:
                         aux = 0
                     else:
-                        aux /= count * num_regions
+                        aux /= 10*count * num_regions
                 else:
                     aux = sys.maxsize
                 scores_row.append(aux)
@@ -277,30 +282,31 @@ class XmippProtModelGA(ProtAnalysis3D):
         new_population = np.random.random_integers(low=1, high=len(self.seqs), size=pop_size)
         num_generations = self.generations.get()
         num_parents = self.parents.get()
-        self.cMat, self.regionsContactBg = self.connectivityMatrix()
+        self.cMat, self.dMat, self.regionsContactBg = self.connectivityMatrix()
         # print(self.regionsContactBg)
 
         mean_density_prot = 8.1325e-04  # KDa / (A^3)
-        # mean_mass_aa = 0.110  # KDa
+        mean_mass_aa = 0.110  # KDa
         sampling_rate = self.inputMask.get().getSamplingRate() ** 3  # A^3 / voxel
         mean_density_prot *= sampling_rate
 
-        # self.submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
-        # print(sum([mean_mass_aa * len(subseq) for subseq in self.seqs]))
-        self.submass = []
-        for seq in self.seqs:
-            vol = 0
-            for aa in seq:
-                vol += bulk[aa]
-            self.submass.append(vol)
+        self.submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
+        print(sum([mean_mass_aa * len(subseq) for subseq in self.seqs]))
+        # self.submass = []
+        # for seq in self.seqs:
+        #     vol = 0
+        #     for aa in seq:
+        #         vol += bulk[aa]
+        #     self.submass.append(vol)
         # print(self.submass)
         self.submass = np.asarray(self.submass)
-        self.submass /= (mean_density_prot / sampling_rate)
+        # self.submass /= (mean_density_prot / sampling_rate)
 
-        self.map_region_mass = [sampling_rate * np.sum(self.idMask == idr) for idr in self.regions_id]
+        self.map_region_mass = [mean_density_prot * np.sum(self.idMask == idr) for idr in self.regions_id]
         self.map_region_mass = np.asarray(self.map_region_mass)
-        factor = np.sum(self.submass) / np.sum(self.map_region_mass)
-        self.map_region_mass *= factor
+        print(mean_density_prot * np.sum(self.idMask != 0))
+        # factor = np.sum(self.submass) / np.sum(self.map_region_mass)
+        # self.map_region_mass *= factor
 
         self.map_region_mass /= np.sum(self.map_region_mass)
         self.submass /= np.sum(self.submass)
@@ -390,7 +396,7 @@ class XmippProtModelGA(ProtAnalysis3D):
         score_population = np.zeros(len(population))
         # for idi, individual in enumerate(population):
         out = Parallel(n_jobs=self.numberOfThreads.get())\
-            (delayed(connectivityChains2)(self.seqs, individual, self.num_regions, self.cMat, idi)
+            (delayed(connectivityChains2)(self.seqs, individual, self.num_regions, self.cMat, self.dMat, idi)
              for idi, individual in enumerate(population))
 
         for score, pos in out:
@@ -484,8 +490,10 @@ class XmippProtModelGA(ProtAnalysis3D):
             for idn in range(self.num_regions):
                 sumVoxels = voxelsRegion[idm] + voxelsRegion[idn]
                 cMat[idm,idn] = 1 - (2 * cMat[idm,idn] / sumVoxels)
+        dMat = 1 - cMat
+        dMat[dMat == 1] = self.num_regions
         cMat[cMat == 1] = self.num_regions
-        return cMat, regionsContactBg / np.sum(regionsContactBg)
+        return cMat, dMat, regionsContactBg / np.sum(regionsContactBg)
 
     def neighbours(self, region_id):
         boundary_voxels = 0
