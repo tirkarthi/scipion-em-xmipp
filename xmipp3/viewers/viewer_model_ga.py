@@ -123,7 +123,7 @@ class XmippProtModelGAViewer(pwviewer.Viewer):
         num_regions = int(np.amax(mask))
         rids = np.array([r + 1.0 for r in range(num_regions)], np.int32)
         h5file.create_array(root, 'region_ids', rids)
-        rcolors = cm.get_cmap('rainbow')(np.linspace(0, 1, num_regions))
+        rcolors = cm.get_cmap('viridis')(np.linspace(0, 1, num_regions))
         h5file.create_array(root, 'region_colors', rcolors)
         slev = np.array([0] * num_regions, np.float32)
         h5file.create_array(root, 'smoothing_levels', slev)
