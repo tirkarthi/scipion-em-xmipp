@@ -23,16 +23,12 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-
-import numpy as np
-from matplotlib import cm
-import tables, os
-
 import pyworkflow.viewer as pwviewer
 
 import pwem.viewers.views as vi
-from pwem.emlib.image import ImageHandler
-from pwem.viewers.viewer_chimera import ChimeraView
+from pyworkflow.gui import BrowserWindow
+
+from .views_tkinter_tree import SeggerTreeProvider, SeggerBrowser
 
 from ..protocols.protocol_model_ga import XmippProtModelGA
 
@@ -94,53 +90,15 @@ class XmippProtModelGAViewer(pwviewer.Viewer):
         cls = type(obj)
 
         if issubclass(cls, XmippProtModelGA):
-            segFile = self.idMask2Segger()
-            filePath = self.chimeraViewFile(segFile)
-            views.append(ChimeraView(filePath))
+            volumeList = [item.clone() for item in self.protocol.outputMasks.iterItems()]
+
+            path = self.protocol._getTmpPath()
+
+            volumeProvider = SeggerTreeProvider(volumeList, path)
+
+            window = BrowserWindow('Output Masks', master=self.formWindow)
+            browser = SeggerBrowser(window, volumeProvider, path)
+            window.setBrowser(browser)
+            window.show()
+
         return views
-
-    def idMask2Segger(self):
-        ih = ImageHandler()
-        filePath = self.protocol.outputMasks.getFirstItem().getFileName()
-        image = ih.read(filePath)
-        mask = np.squeeze(image.getData())
-        mask = mask.astype(np.uint32)
-        outPath = self.protocol._getTmpPath('mask.seg')
-        h5file = tables.open_file(outPath, mode='w')
-        root = h5file.root
-        a = root._v_attrs
-        a.format = 'segger'
-        a.format_version = 2
-        a.name = os.path.basename(filePath)
-        a.map_size = np.array(mask.shape, np.int32)
-        a.map_path = filePath
-        a.map_level = 0.01
-        a.ijk_to_xyz_trasform = np.array([[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.]], np.float32)
-        atom = tables.Atom.from_dtype(mask.dtype)
-        filters = tables.Filters(complevel=5, complib='zlib')
-        ma = h5file.create_carray(root, 'mask', atom, mask.shape, filters=filters)
-        ma[:] = mask
-        num_regions = int(np.amax(mask))
-        rids = np.array([r + 1.0 for r in range(num_regions)], np.int32)
-        h5file.create_array(root, 'region_ids', rids)
-        rcolors = cm.get_cmap('viridis')(np.linspace(0, 1, num_regions))
-        h5file.create_array(root, 'region_colors', rcolors)
-        slev = np.array([0] * num_regions, np.float32)
-        h5file.create_array(root, 'smoothing_levels', slev)
-        pids = np.array([0] * num_regions, np.int32)
-        h5file.create_array(root, 'parent_ids', pids)
-        refpts = np.array([np.asarray(
-            [np.where(mask == (r + 1))[0][0], np.where(mask == (r + 1))[1][0], np.where(mask == (r + 1))[2][0]]) for
-            r in range(num_regions)], np.float32)
-        h5file.create_array(root, 'ref_points', refpts)
-        h5file.close()
-        return outPath
-
-    def chimeraViewFile(self, segFile):
-        filePath = self.protocol._getTmpPath('viewChimera.py')
-        f = open(filePath, "w")
-        f.write('from chimerax.core.commands import run\n')
-        f.write('run(session, "open %s")\n' % os.path.abspath(segFile))
-        f.write('run(session, "vol all hide")\n')
-        f.close()
-        return filePath

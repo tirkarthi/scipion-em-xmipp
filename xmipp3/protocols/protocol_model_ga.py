@@ -29,7 +29,7 @@ import sys
 from joblib import delayed, Parallel
 from numba import njit
 
-from pwem.objects import Volume
+from pwem.objects import Volume, Float
 from pwem.protocols import ProtAnalysis3D
 from pwem.emlib.image import ImageHandler
 
@@ -345,13 +345,14 @@ class XmippProtModelGA(ProtAnalysis3D):
         best_individuals = np.argsort(score_population)
         print(new_population[best_individuals[0]])
         self.bestIndividuals = new_population[best_individuals[:20]]
+        self.bestScores = score_population[best_individuals[:20]]
 
     def createOutputStep(self):
         ih = ImageHandler()
         outputMasks = self._createSetOfVolumes()
         outputMasks.setSamplingRate(self.inputMask.get().getSamplingRate())
         score_id = 1
-        for individual in self.bestIndividuals:
+        for idi, individual in enumerate(self.bestIndividuals):
             outMask = ih.createImage()
             outData = np.zeros(self.idMask.shape, float)
             for pos, idm in enumerate(self.regions_id):
@@ -362,6 +363,7 @@ class XmippProtModelGA(ProtAnalysis3D):
             volume = Volume()
             volume.setSamplingRate(self.inputMask.get().getSamplingRate())
             volume.setLocation(self._getExtraPath('outMask_%d.mrc' % score_id))
+            volume.score = Float(self.bestScores[idi])
             outputMasks.append(volume)
             score_id += 1
         self._defineOutputs(outputMasks=outputMasks)
