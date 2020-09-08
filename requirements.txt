@@ -4,3 +4,4 @@ peppercorn
 plotter
 scons
 numba
+tables

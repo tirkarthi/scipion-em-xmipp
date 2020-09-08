@@ -344,8 +344,9 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         best_individuals = np.argsort(score_population)
         print(new_population[best_individuals[0]])
-        self.bestIndividuals = new_population[best_individuals[:20]]
-        self.bestScores = score_population[best_individuals[:20]]
+        idx = np.round(np.linspace(0, num_parents, 20)).astype(int)
+        self.bestIndividuals = new_population[best_individuals[idx]]
+        self.bestScores = score_population[best_individuals[idx]]
 
     def createOutputStep(self):
         ih = ImageHandler()
