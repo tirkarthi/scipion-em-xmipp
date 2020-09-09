@@ -23,7 +23,7 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import os
+import os, threading
 import tables
 from matplotlib import cm
 import numpy as np
@@ -81,7 +81,8 @@ class SeggerBrowser(ObjectBrowser):
 
     def _itemDoubleClick(self, obj):
         self.volume = obj
-        self.lanchSeggerForVolume(self.volume)
+        self.proc = threading.Thread(target=self.lanchSeggerForVolume, args=(self.volume,))
+        self.proc.start()
 
     def lanchSeggerForVolume(self, volume):
         segFile = self.idMask2Segger(volume)
