@@ -35,78 +35,74 @@ from pwem.emlib.image import ImageHandler
 
 import pyworkflow.protocol.params as params
 
-# bulk = {
-#     "A": 11.500,
-#     "R": 14.280,
-#     "N": 12.820,
-#     "D": 11.680,
-#     "C": 13.460,
-#     "Q": 14.450,
-#     "E": 13.570,
-#     "G": 3.400,
-#     "H": 13.690,
-#     "I": 21.400,
-#     "L": 21.400,
-#     "K": 15.710,
-#     "M": 16.250,
-#     "F": 19.800,
-#     "P": 17.430,
-#     "S": 9.470,
-#     "T": 15.770,
-#     "W": 21.670,
-#     "Y": 18.030,
-#     "V": 21.570,
-# }
 
-bulk = {
-    "A": 87.8,
-    "R": 192.9,
-    "N": 124.7,
-    "D": 125.5,
-    "C": 105.4,
-    "Q": 147.3,
-    "E": 13.570,
-    "G": 148.0,
-    "H": 156.3,
-    "I": 166.1,
-    "L": 168,
-    "K": 184.5,
-    "M": 165.2,
-    "F": 189.7,
-    "P": 123.3,
-    "S": 91.7,
-    "T": 118.3,
-    "W": 227.9,
-    "Y": 191.2,
-    "V": 138.8,
-}
+def contactVoxels(idMask):
+    num_regions = int(np.amax(idMask))
+    cc_mat = np.zeros((num_regions, num_regions))
+    bgVoxels = np.zeros(num_regions)
+    for rid in range(1, num_regions + 1):
+        row, boundary_voxels = neighbours(rid, idMask, num_regions)
+        bgVoxels[rid-1] = boundary_voxels
+        cc_mat[rid-1] = row
+    return cc_mat, bgVoxels
 
-hidroScale = {
-    "A": 5.300,
-    "R": 4.180,
-    "N": 3.710,
-    "D": 3.590,
-    "C": 7.930,
-    "Q": 3.870,
-    "E": 3.650,
-    "G": 4.480,
-    "H": 5.100,
-    "I": 8.830,
-    "L": 4.470,
-    "K": 2.950,
-    "M": 8.950,
-    "F": 9.030,
-    "P": 3.870,
-    "S": 4.090,
-    "T": 4.490,
-    "W": 7.660,
-    "Y": 5.890,
-    "V": 7.630,
-}
+def diceBoundaryMatrix(cc_mat, bgVoxels):
+    num_regions = len(bgVoxels)
+    dc_mat = np.zeros((num_regions, num_regions))
+    for idm in range(num_regions):
+        for idn in range(num_regions):
+            # sumVoxels = bgVoxels[idm] + bgVoxels[idn] + np.sum(cc_mat[idm]) + np.sum(cc_mat[idn])
+            sumVoxels = np.sum(cc_mat[idm]) + np.sum(cc_mat[idn])
+            dc_mat[idm,idn] = 2 * cc_mat[idm,idn] / sumVoxels
+    return dc_mat
+
+@njit
+def neighbours(region_id, idMask, num_regions):
+    bgVoxels = 0
+    voxels = np.where(idMask == region_id)
+    row = np.zeros(num_regions)
+    for idv in range(len(voxels[0])):
+        coords = [voxels[0][idv], voxels[1][idv], voxels[2][idv]]
+        submat = idMask[coords[0]-1:coords[0]+2, coords[1]-1:coords[1]+2, coords[2]-1:coords[2]+2]
+        submat = submat.copy().reshape(-1)
+        # submat = np.unique(submat)
+        submat = submat[(submat != region_id)].astype(np.int32)
+        if len(submat) > 0:
+            for rid in submat:
+                if rid == 0:
+                    bgVoxels += 1
+                else:
+                    row[rid - 1] += 1
+    return row, bgVoxels
+
+def costCCChains(cc_chain, max_cc, cc_mat, bgVoxels, numChains, individual, idi):
+    # limit = 0.5 * max_cc
+    limit = 0.1
+    if len(np.unique(individual)) == numChains:
+        chain_cc_mat, chainBgVoxels = computeChains(cc_mat, bgVoxels, numChains, individual)
+        dbc_chains = diceBoundaryMatrix(chain_cc_mat, chainBgVoxels)
+        dbc_chains[dbc_chains >= limit] = 1
+        dbc_chains[dbc_chains < limit] = 0
+        score = np.sum(np.abs(cc_chain - dbc_chains)) / (2 * chain_cc_mat.size)
+    else:
+        score = sys.maxsize
+    return score, idi
+
+def computeChains(cc_mat, bgVoxels, numChains, individual):
+    chain_cc_mat = np.zeros((numChains, numChains))
+    chainBgVoxels = np.zeros(numChains)
+    for idm in range(numChains):
+        cid_1 = idm + 1
+        cc_idm = np.where(individual == cid_1)
+        for idn in range(idm+1, numChains):
+            cid_2 = idn + 1
+            cc_idn = np.where(individual == cid_2)
+            chain_cc_mat[idm, idn] += np.sum(cc_mat[cc_idm][:, cc_idn]) / 2
+        chainBgVoxels[idm] += np.sum(bgVoxels[cc_idm])
+    return chain_cc_mat + chain_cc_mat.T, chainBgVoxels
 
 @njit
 def connectivityIndividual(seqs, individual, num_regions, cMat, idi):
-    # score = 0
     score = np.zeros(len(seqs))
     for idx in range(len(seqs)):
         chain_regions = np.where(individual == (idx + 1))
@@ -164,81 +160,74 @@ def connectivityMap(chain_regions, dMat):
         score += min_dist + max_dist
     return score
 
-@njit
-def massIndividual(individual, seqs, submass, map_region_mass, idi):
-    score = np.zeros(len(seqs))
-    for idx in range((len(seqs))):
+# @njit
+def massIndividual(individual, submass, map_region_mass, idi):
+    score = np.zeros(len(submass))
+    for idx in range((len(submass))):
         map_regions = np.where(individual == (idx + 1))
-        score[idx] = np.abs(submass[idx] - np.sum(map_region_mass[map_regions]))
-    # return np.sum(score)/len(score), idi
-    return np.amax(score), idi
+        score[idx] = np.abs((submass[idx] - np.sum(map_region_mass[map_regions])) / submass[idx])
+    return np.sum(score) / len(score), idi
 
-@njit
-def connectivityChains(seqs, individual, num_regions, cMat, idi):
-    score = np.ones(len(seqs) - 1)
-    for idx in range((len(seqs)) - 1):
-        firstChain = np.where(individual == (idx + 1))
-        secondChain = np.where(individual == (idx + 2))
-        if len(firstChain[0]) > 0 and len(secondChain[0]) > 0:
-            aux = 0
-            count = 0
-            for idm in firstChain[0]:
-                for idn in secondChain[0]:
-                    # if cMat[idm, idn] < interRegionScore:
-                    if cMat[idm, idn] != num_regions:
-                        aux += cMat[idm, idn]
-                        count += 1
-            # # Comentar el if para buscar las zonas sin ninguna conexion
-            # if count == 0:
-            #     aux = sys.maxsize
-            # else:
-            #     aux /= count * num_regions
-        else:
-            aux = sys.maxsize
-        score[idx] = aux
-    return np.sum(score) / (len(score)), idi
+# @njit
+# def connectivityChains(seqs, individual, num_regions, cMat, idi):
+#     score = np.ones(len(seqs) - 1)
+#     for idx in range((len(seqs)) - 1):
+#         firstChain = np.where(individual == (idx + 1))
+#         secondChain = np.where(individual == (idx + 2))
+#         if len(firstChain[0]) > 0 and len(secondChain[0]) > 0:
+#             aux = 0
+#             count = 0
+#             for idm in firstChain[0]:
+#                 for idn in secondChain[0]:
+#                     # if cMat[idm, idn] < interRegionScore:
+#                     if cMat[idm, idn] != num_regions:
+#                         aux += cMat[idm, idn]
+#                         count += 1
+#             # # Comentar el if para buscar las zonas sin ninguna conexion
+#             # if count == 0:
+#             #     aux = sys.maxsize
+#             # else:
+#             #     aux /= count * num_regions
+#         else:
+#             aux = sys.maxsize
+#         score[idx] = aux
+#     return np.sum(score) / (len(score)), idi
 
-@njit
-def connectivityChains2(seqs, individual, num_regions, cMat, dMat, idi):
-    cc_mat = np.asarray([[-1, 1, 1, 0], [1, -1, 0, 1], [1, 0, -1, 0], [0, 1, 0, -1]])
-    score = np.ones(len(seqs) - 1)
-    for idr in range(len(cc_mat)):
-        scores_row = []
-        row = cc_mat[idr]
-        for idc in range(len(row)):
-            # if row[idc] == 1:
-                firstChain = np.where(individual == (idr + 1))
-                secondChain = np.where(individual == (idc + 1))
-                if len(firstChain[0]) > 0 and len(secondChain[0]) > 0:
-                    aux = 0
-                    count = 0
-                    for idm in firstChain[0]:
-                        for idn in secondChain[0]:
-                            if row[idc] == 1:
-                                #if cMat[idm, idn] != num_regions:
-                                    aux += cMat[idm, idn]
-                                    count += 1
-                            else:
-                                #if dMat[idm, idn] != num_regions:
-                                    aux += dMat[idm, idn]
-                                    count += 1
-                    if count == 0:
-                        aux = 0
-                    else:
-                        aux /= 10*count * num_regions
-                else:
-                    aux = sys.maxsize
-                scores_row.append(aux)
-        score[idr] = max(scores_row)
-    return np.sum(score) / (len(score)), idi
-
-@njit
-def hidrophobicityIndividual(chainHidro, individual, regionsContactBg, idi):
-    score = np.ones(len(chainHidro))
-    for idx in range(len(chainHidro)):
-        chainRegions = np.where(individual == (idx+1))
-        score[idx] = np.abs(chainHidro[idx] - np.sum(regionsContactBg[chainRegions]))
-    return np.amax(score), idi
+# @njit
+# def connectivityChains2(seqs, individual, cMat, dMat, idi):
+#     cc_mat = np.asarray([[-1, 1, 1, 0], [1, -1, 0, 1], [1, 0, -1, 0], [0, 1, 0, -1]])
+#     score = np.ones(len(seqs) - 1)
+#     for idr in range(len(cc_mat)):
+#         scores_row = []
+#         row = cc_mat[idr]
+#         for idc in range(len(row)):
+#             firstChain = np.where(individual == (idr + 1))
+#             secondChain = np.where(individual == (idc + 1))
+#             if len(firstChain[0]) > 0 and len(secondChain[0]) > 0:
+#                 score_total = 0
+#                 for idm in firstChain[0]:
+#                     aux = sys.maxsize
+#                     count = 0
+#                     for idn in secondChain[0]:
+#                         count += 1
+#                         if row[idc] == 1:
+#                             if cMat[idm, idn] <= 0.5:
+#                                 aux = 0
+#                             elif aux > cMat[idm, idn]:
+#                                 aux = cMat[idm, idn]
+#                         elif row[idc] == 0:
+#                             if aux > dMat[idm, idn]:
+#                                 aux = dMat[idm, idn]
+#                         else:
+#                             aux = 0
+#                     score_total += aux / count
+#                 scores_row.append(score_total)
+#             else:
+#                 aux = sys.maxsize
+#                 scores_row.append(aux)
+#         scores_row = np.asarray(scores_row, dtype=np.float64)
+#         score[idr] = np.sum(scores_row) / len(scores_row)
+#     return np.sum(score) / (len(score) * 40), idi
 
 
 class XmippProtModelGA(ProtAnalysis3D):
@@ -282,7 +271,11 @@ class XmippProtModelGA(ProtAnalysis3D):
         new_population = np.random.random_integers(low=1, high=len(self.seqs), size=pop_size)
         num_generations = self.generations.get()
         num_parents = self.parents.get()
-        self.cMat, self.dMat, self.regionsContactBg = self.connectivityMatrix()
+        self.cc_mat, self.bgVoxels = contactVoxels(self.idMask)
+        self.cMat = diceBoundaryMatrix(self.cc_mat, self.bgVoxels)
+        self.cMat = 1 - self.cMat
+        self.cMat[self.cMat == 1] = self.num_regions
+        # self.cMat, self.dMat, self.regionsContactBg = self.connectivityMatrix()
         # print(self.regionsContactBg)
 
         mean_density_prot = 8.1325e-04  # KDa / (A^3)
@@ -291,42 +284,20 @@ class XmippProtModelGA(ProtAnalysis3D):
         mean_density_prot *= sampling_rate
 
         self.submass = [mean_mass_aa * len(subseq) for subseq in self.seqs]
-        print(sum([mean_mass_aa * len(subseq) for subseq in self.seqs]))
-        # self.submass = []
-        # for seq in self.seqs:
-        #     vol = 0
-        #     for aa in seq:
-        #         vol += bulk[aa]
-        #     self.submass.append(vol)
-        # print(self.submass)
+        print(sum(self.submass))
         self.submass = np.asarray(self.submass)
-        # self.submass /= (mean_density_prot / sampling_rate)
 
-        self.map_region_mass = [mean_density_prot * np.sum(self.idMask == idr) for idr in self.regions_id]
+        self.map_region_mass = [mean_density_prot * np.sum(self.idMask == rid) for rid in self.regions_id]
         self.map_region_mass = np.asarray(self.map_region_mass)
-        print(mean_density_prot * np.sum(self.idMask != 0))
+        print(np.sum(self.map_region_mass))
         # factor = np.sum(self.submass) / np.sum(self.map_region_mass)
         # self.map_region_mass *= factor
-
-        self.map_region_mass /= np.sum(self.map_region_mass)
-        self.submass /= np.sum(self.submass)
-
-        self.chainHidro = []
-        for seq in self.seqs:
-            hidro = 0
-            for aa in seq:
-                hidro += hidroScale[aa]
-            self.chainHidro.append(hidro)
-        self.chainHidro = np.asarray(self.chainHidro)
-        self.chainHidro /= np.sum(self.chainHidro)
-        # print(self.chainHidro)
 
         for generation in range(num_generations):
             print('Generation: ', (generation+1))
             score_population = self.massScore(new_population)
             score_population += self.connectivityScore(new_population)
             score_population += self.connectivityScoreChain(new_population)
-            score_population += self.hidrophobicityScore(new_population)
             parents = self.matingPool(new_population, score_population, num_parents)
             offspring_size = (pop_size[0] - parents.shape[0], self.num_regions)
             offspring_crossover = self.crossover(new_population, offspring_size)
@@ -338,13 +309,13 @@ class XmippProtModelGA(ProtAnalysis3D):
             score_population = self.massScore(new_population)
             score_population += self.connectivityScore(new_population)
             score_population += self.connectivityScoreChain(new_population)
-            score_population += self.hidrophobicityScore(new_population)
             print('Best result after generation %d: %f' % ((generation+1), np.amin(score_population)))
             sys.stdout.flush()
 
         best_individuals = np.argsort(score_population)
         print(new_population[best_individuals[0]])
         idx = np.round(np.linspace(0, num_parents, 20)).astype(int)
+        # idx = np.round(np.linspace(0, sol_per_population-1, 20)).astype(int)
         self.bestIndividuals = new_population[best_individuals[idx]]
         self.bestScores = score_population[best_individuals[idx]]
 
@@ -375,7 +346,7 @@ class XmippProtModelGA(ProtAnalysis3D):
     def massScore(self, population):
         score_population = np.zeros(len(population))
         out = Parallel(n_jobs=self.numberOfThreads.get()) \
-            (delayed(massIndividual)(individual, self.seqs, self.submass, self.map_region_mass, idi)
+            (delayed(massIndividual)(individual, self.submass, self.map_region_mass, idi)
              for idi, individual in enumerate(population))
 
         for score, pos in out:
@@ -397,21 +368,12 @@ class XmippProtModelGA(ProtAnalysis3D):
 
     def connectivityScoreChain(self, population):
         score_population = np.zeros(len(population))
+        max_cc = np.amax(self.cc_mat)
+        cc_chain = np.asarray([[0, 1, 1, 0], [1, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0]])
         # for idi, individual in enumerate(population):
+        #     out = costCCChains(individual, cc_chain, self.idMask, idi)
         out = Parallel(n_jobs=self.numberOfThreads.get())\
-            (delayed(connectivityChains2)(self.seqs, individual, self.num_regions, self.cMat, self.dMat, idi)
-             for idi, individual in enumerate(population))
-
-        for score, pos in out:
-            score_population[pos] = score
-
-        return score_population
-
-    def hidrophobicityScore(self, population):
-        score_population = np.zeros(len(population))
-        # for idi, individual in enumerate(population):
-        out = Parallel(n_jobs=self.numberOfThreads.get())\
-            (delayed(hidrophobicityIndividual)(self.chainHidro, individual, self.regionsContactBg, idi)
+            (delayed(costCCChains)(cc_chain, max_cc, self.cc_mat, self.bgVoxels, len(self.seqs), individual, idi)
              for idi, individual in enumerate(population))
 
         for score, pos in out:
@@ -478,44 +440,44 @@ class XmippProtModelGA(ProtAnalysis3D):
 
         return offspring
 
-    def connectivityMatrix(self):
-        regionsContactBg = np.zeros(self.num_regions)
-        voxelsRegion = np.zeros(self.num_regions)
-        cMat = np.zeros((self.num_regions, self.num_regions))
-        for idr in range(self.num_regions):
-            row, boundary_voxels, contactBgVoxels = self.neighbours(self.regions_id[idr])
-            voxelsRegion[idr] = boundary_voxels
-            regionsContactBg[idr] = contactBgVoxels
-            cMat[idr] = row
-
-        # Connectivity matrix normalization (Dice coefficient)
-        for idm in range(self.num_regions):
-            for idn in range(self.num_regions):
-                sumVoxels = voxelsRegion[idm] + voxelsRegion[idn]
-                cMat[idm,idn] = 1 - (2 * cMat[idm,idn] / sumVoxels)
-        dMat = 1 - cMat
-        dMat[dMat == 1] = self.num_regions
-        cMat[cMat == 1] = self.num_regions
-        return cMat, dMat, regionsContactBg / np.sum(regionsContactBg)
-
-    def neighbours(self, region_id):
-        boundary_voxels = 0
-        contactBgVoxels = 0
-        voxels = np.asarray(np.where(self.idMask == region_id))
-        row = np.zeros(self.num_regions)
-        for idv in range(voxels.shape[1]):
-            coords = voxels[:,idv]
-            submat = self.idMask[coords[0]-1:coords[0]+2, coords[1]-1:coords[1]+2, coords[2]-1:coords[2]+2]
-            submat = submat.reshape(-1)
-            touchesBg = True if np.sum(submat == 0) > 0 else False
-            submat = np.unique(submat)
-            submat = submat[(submat != 0) * (submat != region_id)]
-            if len(submat) > 0:
-                row[submat.astype('int') - 1] += 1
-                boundary_voxels += 1
-            if touchesBg:
-                contactBgVoxels += 1
-        return row, boundary_voxels, contactBgVoxels
+    # def connectivityMatrix(self):
+    #     regionsContactBg = np.zeros(self.num_regions)
+    #     voxelsRegion = np.zeros(self.num_regions)
+    #     cMat = np.zeros((self.num_regions, self.num_regions))
+    #     for idr in range(self.num_regions):
+    #         row, boundary_voxels, contactBgVoxels = self.neighbours(self.regions_id[idr])
+    #         voxelsRegion[idr] = boundary_voxels
+    #         regionsContactBg[idr] = contactBgVoxels
+    #         cMat[idr] = row
+    #
+    #     # Connectivity matrix normalization (Dice coefficient)
+    #     for idm in range(self.num_regions):
+    #         for idn in range(self.num_regions):
+    #             sumVoxels = voxelsRegion[idm] + voxelsRegion[idn]
+    #             cMat[idm,idn] = 1 - (2 * cMat[idm,idn] / sumVoxels)
+    #     dMat = 1 - cMat
+    #     dMat[dMat == 1] = self.num_regions
+    #     cMat[cMat == 1] = self.num_regions
+    #     return cMat, dMat, regionsContactBg / np.sum(regionsContactBg)
+    #
+    # def neighbours(self, region_id):
+    #     boundary_voxels = 0
+    #     contactBgVoxels = 0
+    #     voxels = np.asarray(np.where(self.idMask == region_id))
+    #     row = np.zeros(self.num_regions)
+    #     for idv in range(voxels.shape[1]):
+    #         coords = voxels[:,idv]
+    #         submat = self.idMask[coords[0]-1:coords[0]+2, coords[1]-1:coords[1]+2, coords[2]-1:coords[2]+2]
+    #         submat = submat.reshape(-1)
+    #         touchesBg = True if np.sum(submat == 0) > 0 else False
+    #         submat = np.unique(submat)
+    #         submat = submat[(submat != 0) * (submat != region_id)]
+    #         if len(submat) > 0:
+    #             row[submat.astype('int') - 1] += 1
+    #             boundary_voxels += 1
+    #         if touchesBg:
+    #             contactBgVoxels += 1
+    #     return row, boundary_voxels, contactBgVoxels
 
     # def dijkstraMatrix(self, chain_regions):
     #     num_regions = len(chain_regions)
