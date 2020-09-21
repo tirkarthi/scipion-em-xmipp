@@ -28,7 +28,7 @@ import pyworkflow.viewer as pwviewer
 import pwem.viewers.views as vi
 from pyworkflow.gui import BrowserWindow
 
-from .views_tkinter_tree import SeggerTreeProvider, SeggerBrowser
+from segger.viewers.views_tkinter_tree import SeggerTreeProvider, SeggerBrowser
 
 from ..protocols.protocol_model_ga import XmippProtModelGA
 
