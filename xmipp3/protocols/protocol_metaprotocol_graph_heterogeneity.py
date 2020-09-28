@@ -26,6 +26,7 @@
 # **************************************************************************
 
 import sys, time
+from os.path import exists
 
 from pyworkflow import VERSION_2_0
 from pyworkflow.protocol.params import (PointerParam, FloatParam, BooleanParam,
@@ -36,18 +37,20 @@ from pyworkflow.project import Manager
 from pyworkflow.protocol import getProtocolFromDb
 import pyworkflow.object as pwobj
 
-from pwem.protocols import EMProtocol
+from pwem.protocols import EMProtocol, ProtAlignmentAssign
 from pwem.objects import Volume
 
 from pyworkflow.plugin import Domain
 
-from xmipp3.protocols import XmippProtSplitVolumeHierarchical
-from xmipp3.protocols import XmippProtReconstructHeterogeneous
 from xmipp3.protocols import XmippMetaProtCreateOutput
 from xmipp3.protocols import XmippMetaProtCreateSubset
 
 from xmipp3.protocols import XmippProtAngularGraphConsistence2
 from xmipp3.protocols import XmippProtReconstructHighRes
+
+from pwem.emlib.metadata import iterRows
+from xmipp3.convert import readSetOfParticles, readSetOfImages
+from pwem import emlib
 
 class XmippMetaProtDiscreteGraphHeterogeneity(EMProtocol):
     """ Metaprotocol to run together some protocols in order to deal with heterogeneity
@@ -139,10 +142,12 @@ class XmippMetaProtDiscreteGraphHeterogeneity(EMProtocol):
         self.numIter = self.maxNumIter.get()   
         
         print('convertInput')
+        sys.stdout.flush()
         iter = 0
         self.convertInputStep(iter)
         
         print('RelionClassify3D_Protocol')
+        sys.stdout.flush()
         ProtRelionClassify3D = Domain.importFromPlugin('relion.protocols', 
                                                        'ProtRelionClassify3D', 
                                                        doRaise=True)
@@ -165,12 +170,10 @@ class XmippMetaProtDiscreteGraphHeterogeneity(EMProtocol):
         # gedit ./.scipion3env/lib/python3.6/site-packages/relion/tests/test_protocols_relion.py
         # gedit ./.scipion3env/lib/python3.6/site-packages/relion/protocols/protocol_classify3d.py    
          
-        print('input particles size:',self.inputParticles.get().getSize())
         previousProtPart = self
         relionClassify3DProt.inputParticles.set(previousProtPart)
         relionClassify3DProt.inputParticles.setExtended('outputParticlesInit') # is important this name to match
          
-        print('input volume size:',self.inputVolume.get().getDim())
         previousProtVol = self
         relionClassify3DProt.referenceVolume.set(previousProtVol)
         relionClassify3DProt.referenceVolume.setExtended('outputVolumesInit') # is important this name to match
@@ -195,12 +198,27 @@ class XmippMetaProtDiscreteGraphHeterogeneity(EMProtocol):
                         self.classListProtocols.append(relionClassify3DProt)
     
         numIter = self.maxNumIter.get() + 1
-        for iter in range(1,2):# range(1, numIter):
-            classVar = 0        
-            for classItem in relionClassify3DProt.outputClasses:
+        
+        for classItem in relionClassify3DProt.outputClasses:
+            
+            classVar = classItem.getObjId() 
+            print('classItem-ObjId',classItem.getObjId())  
+            
+            for iter in range(1,numIter):
                 
-                # relion autorefine with all particles
+                if iter == 1:
+                    previousProtPart = self
+                    partName = 'outputParticlesInit'
+                    previousProtVol = relionClassify3DProt
+                    volumeName = 'outputVolumes.%d'%classItem.getObjId()
+                else:
+                    previousProtPart = highresNoAlignProt
+                    partName = 'outputParticles'
+                    previousProtVol = highresNoAlignProt
+                    volumeName = 'outputVolume'
+                
                 print('Highres (one class) - iter', iter,'class',classVar)
+                print('particlesName:',partName,'\tvolumeName:',volumeName)
                 sys.stdout.flush()
                 
                 newHighres = project.newProtocol(
@@ -210,39 +228,23 @@ class XmippMetaProtDiscreteGraphHeterogeneity(EMProtocol):
                         numberOfIterations=1, 
                         particleRadius = self.particleRadius.get(),
                         maximumTargetResolution = self.targetResolution.get(),
+                        #multiresolution=False,
                         numberOfMpi=self.numberOfMpi.get(),
                         alignmentMethod=XmippProtReconstructHighRes.GLOBAL_ALIGNMENT,
                         useGpu=self.useGpu.get(),
                         gpuList = self.gpuList.get()
                         )    
-             
-                previousProtPart = self
                 newHighres.inputParticles.set(previousProtPart)
-                newHighres.inputParticles.setExtended('outputParticlesInit') # is important this name to match
+                newHighres.inputParticles.setExtended(partName) 
                  
-                previousProtVol = relionClassify3DProt
                 newHighres.inputVolumes.set(previousProtVol)
-                volumeName = 'outputVolumes.%d'%classItem.getObjId()
-                newHighres.inputVolumes.setExtended(volumeName) # is important this name to match
-                                
-                project.scheduleProtocol(newHighres, self._runPrerequisites)
-                # Next schedule will be after this one
-                self._runPrerequisites.append(newHighres.getObjId())
-                self.childs.append(newHighres)
+                newHighres.inputVolumes.setExtended(volumeName) 
                 
-                if not self.finished:
-                    finishedIter = False
-                    while finishedIter == False:
-                        time.sleep(15)
-                        newHighres = self._updateProtocol(newHighres)
-                        if newHighres.isFailed() or newHighres.isAborted():
-                            raise Exception('XmippProtReconstructHighRes has failed')
-                        if newHighres.isFinished():
-                            finishedIter = True
-                            self.classListProtocols.append(newHighres)
+                project.scheduleProtocol(newHighres, self._runPrerequisites)                               
+                self._finishedProt(newHighres)
         
                 # angular graph validation
-                print('angular graph validation - iter', iter,'class',classVar)
+                print('angular graph validation - iter',iter,'class',classVar)
                 sys.stdout.flush()
                 
                 validationProt = project.newProtocol(
@@ -252,32 +254,200 @@ class XmippMetaProtDiscreteGraphHeterogeneity(EMProtocol):
                     maximumTargetResolution=10,
                     numberOfMpi=self.numberOfMpi.get()
                     )
-                
                 previousProtPart = newHighres
+                partName = 'outputParticles'
                 validationProt.inputParticles.set(previousProtPart)
-                validationProt.inputParticles.setExtended('outputParticles') # todo no es así !!
+                validationProt.inputParticles.setExtended(partName) # todo no es así !!
                 
-                previousProtVol = relionClassify3DProt
                 validationProt.inputVolumes.set(previousProtVol)
-                volumeName = 'outputVolumes.%d'%classItem.getObjId()
                 validationProt.inputVolumes.setExtended(volumeName) 
                 
-                project.scheduleProtocol(validationProt, self._runPrerequisites)
-                # Next schedule will be after this one
-                self._runPrerequisites.append(validationProt.getObjId())
-                self.childs.append(validationProt)
+                project.scheduleProtocol(validationProt, self._runPrerequisites) 
+                self._finishedProt(validationProt)
                 
-                if not self.finished:
-                    finishedIter = False
-                    while finishedIter == False:
-                        time.sleep(15)
-                        validationProt = self._updateProtocol(validationProt)
-                        if validationProt.isFailed() or validationProt.isAborted():
-                            raise Exception('graph consistence validation has failed')
-                        if validationProt.isFinished():
-                            finishedIter = True
-                            self.classListProtocols.append(validationProt)                  
+                # angular assignment from newHigresProt
+                print('angular assignment from Highres - iter',iter,'class',classVar)
+                sys.stdout.flush()
+                
+                angAssignProt = project.newProtocol(
+                    ProtAlignmentAssign,
+                    objLabel='assignment from highres',
+                    )
+                previousProtPart = validationProt
+                partName = 'outputParticlesAux'
+                angAssignProt.inputParticles.set(validationProt)
+                angAssignProt.inputParticles.setExtended(partName)
+                   
+                angAssignProt.inputAlignment.set(newHighres)
+                angAssignProt.inputAlignment.setExtended('outputParticles')
+                
+                project.scheduleProtocol(angAssignProt, self._runPrerequisites) 
+                self._finishedProt(angAssignProt)
+                            
+                # reconstruction of new volume for reference using only correctly assigned particles
+                print('Highres reconstruction No-Alignment - iter',iter,'class',classVar)
+                sys.stdout.flush()
+                
+                highresNoAlignProt = project.newProtocol(
+                        XmippProtReconstructHighRes,
+                        objLabel='xmipp Highres - No alignment',
+                        symmetryGroup=self.symmetryGroup.get(),
+                        numberOfIterations=1, 
+                        particleRadius = self.particleRadius.get(),
+                        maximumTargetResolution = self.targetResolution.get(),
+                        numberOfMpi=self.numberOfMpi.get(),
+                        alignmentMethod=XmippProtReconstructHighRes.NO_ALIGNMENT,
+                        useGpu=self.useGpu.get(),
+                        gpuList = self.gpuList.get()
+                        )    
+                previousProtPart = angAssignProt
+                highresNoAlignProt.inputParticles.set(previousProtPart)
+                highresNoAlignProt.inputParticles.setExtended('outputParticles') # is important this name to match
+                 
+                highresNoAlignProt.inputVolumes.set(previousProtVol)
+                highresNoAlignProt.inputVolumes.setExtended(volumeName) # is important this name to match
+                
+                project.scheduleProtocol(highresNoAlignProt, self._runPrerequisites) 
+                self._finishedProt(highresNoAlignProt)
+                    
+                
+        
+        
+#         for iter in range(1, numIter):
+#             print('iter: ',iter)
+#             
+#             # se debe actualizar las partículas que van a pasar a cada iteración
+#             # para iter 1 particles es self
+#             # para iter>1 particles es el subset  de newhighres que cumple con criterios de calidad
+#             
+#             # en cuanto al volumen
+#             # en iter == 1
+#             # el volumen es relionClassify3DProt
+#             # en iter > 1
+#             # el volumen es la reconstruccion que se haga con las partículas buenas 
+#             # que salen de la validación con graph consistence
+#             # para este volumen se puede usar la asignación para esas partículas hecha por newhigres
+#                   
+#             for classItem in relionClassify3DProt.outputClasses:
+#                 classVar = classItem.getObjId()
+#                 print('classItem-ObjId',classItem.getObjId())
+#                 # highres with all particles
+#                 print('Highres (one class) - iter', iter,'class',classVar)
+#                 sys.stdout.flush()
+#                 
+#                 newHighres = project.newProtocol(
+#                         XmippProtReconstructHighRes,
+#                         objLabel='xmipp Highres - iter %d class %d' % (iter,classVar),
+#                         symmetryGroup=self.symmetryGroup.get(),
+#                         numberOfIterations=1, 
+#                         particleRadius = self.particleRadius.get(),
+#                         maximumTargetResolution = self.targetResolution.get(),
+#                         numberOfMpi=self.numberOfMpi.get(),
+#                         alignmentMethod=XmippProtReconstructHighRes.GLOBAL_ALIGNMENT,
+#                         useGpu=self.useGpu.get(),
+#                         gpuList = self.gpuList.get()
+#                         )    
+#                 previousProtPart = self
+#                 newHighres.inputParticles.set(previousProtPart)
+#                 newHighres.inputParticles.setExtended('outputParticlesInit') # is important this name to match
+#                  
+#                 previousProtVol = relionClassify3DProt
+#                 newHighres.inputVolumes.set(previousProtVol)
+#                 volumeName = 'outputVolumes.%d'%classItem.getObjId()
+#                 newHighres.inputVolumes.setExtended(volumeName) # is important this name to match
+#                 
+#                 project.scheduleProtocol(newHighres, self._runPrerequisites)                               
+#                 self._finishedProt(newHighres)
+#         
+#                 # angular graph validation
+#                 print('angular graph validation - iter',iter,'class',classVar)
+#                 sys.stdout.flush()
+#                 
+#                 validationProt = project.newProtocol(
+#                     XmippProtAngularGraphConsistence2,
+#                     objLabel='graphValidation - iter %d' % iter,
+#                     symmetryGroup=self.symmetryGroup.get(),
+#                     maximumTargetResolution=10,
+#                     numberOfMpi=self.numberOfMpi.get()
+#                     )
+#                 previousProtPart = newHighres
+#                 validationProt.inputParticles.set(previousProtPart)
+#                 validationProt.inputParticles.setExtended('outputParticles') # todo no es así !!
+#                 
+#                 previousProtVol = relionClassify3DProt
+#                 validationProt.inputVolumes.set(previousProtVol)
+#                 volumeName = 'outputVolumes.%d'%classItem.getObjId()
+#                 validationProt.inputVolumes.setExtended(volumeName) 
+#                 
+#                 project.scheduleProtocol(validationProt, self._runPrerequisites) 
+#                 self._finishedProt(validationProt)
+#                 
+#                 # angular assignment from newHigresProt
+#                 print('angular assignment from Highres - iter',iter,'class',classVar)
+#                 sys.stdout.flush()
+#                 
+#                 angAssignProt = project.newProtocol(
+#                     ProtAlignmentAssign,
+#                     objLabel='assignment from highres',
+#                     )
+#                 previousProtPart = validationProt
+#                 partName = 'outputParticlesAux'
+#                 angAssignProt.inputParticles.set(validationProt)
+#                 angAssignProt.inputParticles.setExtended(partName)
+#                    
+#                 angAssignProt.inputAlignment.set(newHighres)
+#                 angAssignProt.inputAlignment.setExtended('outputParticles')
+#                 
+#                 project.scheduleProtocol(angAssignProt, self._runPrerequisites) 
+#                 self._finishedProt(angAssignProt)
+#                             
+#                 # reconstruction of new volume for reference using only correctly assigned particles
+#                 print('Highres reconstruction No-Alignment - iter',iter,'class',classVar)
+#                 sys.stdout.flush()
+#                 
+#                 highresNoAlignProt = project.newProtocol(
+#                         XmippProtReconstructHighRes,
+#                         objLabel='xmipp Highres - No alignment',
+#                         symmetryGroup=self.symmetryGroup.get(),
+#                         numberOfIterations=1, 
+#                         particleRadius = self.particleRadius.get(),
+#                         maximumTargetResolution = self.targetResolution.get(),
+#                         numberOfMpi=self.numberOfMpi.get(),
+#                         alignmentMethod=XmippProtReconstructHighRes.NO_ALIGNMENT,
+#                         useGpu=self.useGpu.get(),
+#                         gpuList = self.gpuList.get()
+#                         )    
+#                 previousProtPart = angAssignProt
+#                 highresNoAlignProt.inputParticles.set(previousProtPart)
+#                 highresNoAlignProt.inputParticles.setExtended('outputParticles') # is important this name to match
+#                  
+#                 previousProtVol = relionClassify3DProt
+#                 highresNoAlignProt.inputVolumes.set(previousProtVol)
+#                 volumeName = 'outputVolumes.%d'%classItem.getObjId()
+#                 highresNoAlignProt.inputVolumes.setExtended(volumeName) # is important this name to match
+#                 
+#                 project.scheduleProtocol(highresNoAlignProt, self._runPrerequisites) 
+#                 self._finishedProt(highresNoAlignProt)
+                    
     # --------------------------- STEPS functions -------------------------------
+    
+    def _finishedProt(self, protocol):
+        # Next schedule will be after this one
+        self._runPrerequisites.append(protocol.getObjId())
+        self.childs.append(protocol)
+        if not self.finished:
+            finishedIter = False
+            while finishedIter == False:
+                time.sleep(15)
+                protocol = self._updateProtocol(protocol)
+                if protocol.isFailed() or protocol.isAborted():
+                    raise Exception('protocol: %s has failed' % protocol.getObjLabel())
+                if protocol.isFinished():
+                    finishedIter = True
+                    self.classListProtocols.append(protocol) 
+        print('protocol: %s has finished' % protocol.getObjLabel())
+        sys.stdout.flush()
+         
 
     def _updateProtocol(self, protocol):
         """ Retrieve the updated protocol
@@ -312,67 +482,13 @@ class XmippMetaProtDiscreteGraphHeterogeneity(EMProtocol):
             # self.splitInputParts = outputParticles
             # self.signifInputParts = outputParticles
 
-    def checkOutputsStep(self, project, iter):
+    def checkOutputsStep(self, newHighres, validationProt, iter):
+        pass
 
-        maxSize = max(self.classListSizes)
-        minMax = float((self.inputParticles.get().getSize() / len(
-            self.classListSizes)) * 0.2)
-        newSubsetProt = None
-
-        if (maxSize < minMax or maxSize < 100):
-            self.finished = True
-
-        if not self.finished:
-            idx = self.classListSizes.index(maxSize)
-            signifProt = self.classListProtocols[idx]
-            idMaxSize = self.classListIds[idx]
-
-            newSubsetProt = project.newProtocol(
-                XmippMetaProtCreateSubset,
-                objLabel='metaprotocol subset - iter %d' % iter,
-                # inputSetOfVolumes=signifProt.outputVolumes,
-                # inputSetOfClasses3D=signifProt.outputClasses,
-                idx=idMaxSize
-            )
-            # nameVol = 'outputVolumes'
-            # newSubsetProt.inputSetOfVolumes.set(signifProt)
-            # newSubsetProt.inputSetOfVolumes.setExtended(nameVol)
-            nameClasses = 'outputClasses'
-            newSubsetProt.inputSetOfClasses3D.set(signifProt)
-            newSubsetProt.inputSetOfClasses3D.setExtended(nameClasses)
-
-            project.scheduleProtocol(newSubsetProt, self._runPrerequisites)
-            # Next schedule will be after this one
-            self._runPrerequisites.append(newSubsetProt.getObjId())
-            self.childs.append(newSubsetProt)
-
-            self.classListIds.pop(idx)
-            self.classListProtocols.pop(idx)
-            self.classListSizes.pop(idx)
-
-        return newSubsetProt
 
     def createOutputStep(self, project):
+        pass
 
-        fnOutFile = self._getExtraPath('auxOutputFile.txt')
-        outFile = open(fnOutFile, 'a')
-        classListProtocolsEx = []
-        for i, item in enumerate(self.classListProtocols):
-            if item not in classListProtocolsEx:
-                classListProtocolsEx.append(item)
-            outFile.write(str(item._objLabel) + "\n")
-            outFile.write(str(self.classListIds[i]) + "\n")
-            outFile.write(str(self.classListSizes[i]) + "\n")
-        outFile.close()
-
-        outputMetaProt = project.newProtocol(
-            XmippMetaProtCreateOutput,
-            inputMetaProt=self,
-            inputSignifProts=classListProtocolsEx)
-        project.scheduleProtocol(outputMetaProt, self._runPrerequisites)
-        # Next schedule will be after this one
-        self._runPrerequisites.append(outputMetaProt.getObjId())
-        return outputMetaProt
 
     # --------------------------- INFO functions --------------------------------
     def _validate(self):

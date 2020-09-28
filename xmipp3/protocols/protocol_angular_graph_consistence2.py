@@ -27,7 +27,7 @@
 from glob import glob
 import math
 from os.path import join, isfile, exists
-from shutil import copyfile
+from shutil import copyfile, copy
 import os
 
 from pyworkflow.object import Float, String
@@ -42,13 +42,13 @@ from pyworkflow.gui.plotter import Plotter
 from pwem.objects import Volume, SetOfVolumes
 from pwem import emlib
 from pwem.emlib.image import ImageHandler
-from pwem.emlib.metadata import getFirstRow, getSize
+from pwem.emlib.metadata import getFirstRow, getSize, iterRows
 import pwem.emlib.metadata as md
 from pwem.protocols import ProtAnalysis3D
 from pwem.constants import ALIGN_PROJ
 
 from xmipp3.convert import writeSetOfParticles, writeSetOfVolumes, \
-    getImageLocation, setXmippAttributes, createItemMatrix
+    getImageLocation, setXmippAttributes, createItemMatrix, readSetOfParticles, readSetOfImages
 
 
 class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
@@ -82,6 +82,10 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
                       expertLevel=LEVEL_ADVANCED,
                       label="Angular Sampling (degrees)",
                       help='Angular distance (in degrees) between neighboring projection points ')
+        form.addParam('ccLevel', FloatParam, default=0.95,
+                      expertLevel=LEVEL_ADVANCED,
+                      label="correlation level for validation",
+                      help='threshold correlation to be used in validation. Keep this value in the range [0.90 -- 0.97]')
         form.addParam('minTilt', FloatParam, default=0,
                       expertLevel=LEVEL_ADVANCED,
                       label="Minimum allowed tilt angle",
@@ -151,7 +155,49 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
                                 updateItemCallback=self._updateItem)
             self._defineOutputs(outputParticles=imgSetOut)
             self._defineSourceRelation(self.inputParticles, imgSetOut)
-            self.createPlot2D(fnAngles)
+            
+            mdParticles = emlib.MetaData(fnAngles)
+            ccGraphPrevList = mdParticles.getColumnValues(emlib.MDL_GRAPH_CC_PREVIOUS)
+            ccAsigDirRefList = mdParticles.getColumnValues(emlib.MDL_ASSIGNED_DIR_REF_CC)
+            angDistPrevList = mdParticles.getColumnValues(emlib.MDL_GRAPH_DISTANCE2MAX_PREVIOUS)
+            # threshold
+            th_ccGraph = self.otsu(ccGraphPrevList)
+            th_ccAsigDir = self.otsu(ccAsigDirRefList)
+            th_angDist = self.otsu(angDistPrevList)
+            
+            print("\033[1;33Thresholds:\033[0;33 \n")
+            print('correlation with projection in Graph max direction:',th_ccGraph,
+                  '\ncorrelation with assigned projection:',th_ccAsigDir,
+                  '\nangular distance to maxGraph:',th_angDist)
+            
+            # a second output set
+            fnOutParticles = self._getPath('anglesAux.xmd')
+            copy(fnAngles, fnOutParticles)
+            mdParticles = emlib.MetaData(fnOutParticles)
+            n_false = 0;
+            
+            angAccept = 3 * self.angularSampling.get()
+            for row in iterRows(mdParticles):
+                objId = row.getObjId()
+                assigDirRefCC = row.getValue(emlib.MDL_ASSIGNED_DIR_REF_CC)
+                graphCCPrev = row.getValue(emlib.MDL_GRAPH_CC_PREVIOUS)
+                graphDistMaxGraphPrev = row.getValue(emlib.MDL_GRAPH_DISTANCE2MAX_PREVIOUS)
+
+                if (assigDirRefCC < th_ccAsigDir) and ( graphCCPrev < th_ccGraph ) and (graphDistMaxGraphPrev > th_angDist):
+                #if (assigDirRefCC < self.ccLevel) and ( graphCCPrev < self.ccLevel ) and (graphDistMaxGraphPrev > angAccept):
+                    n_false += 1
+                    mdParticles.setValue(emlib.MDL_ENABLED, -1, objId)
+            mdParticles.write(fnOutParticles)
+            print('to be disabled:',n_false)
+            self.subsets = []
+            i=0
+            self.subsets.append(self._createSetOfParticles(str(i)))
+            self.subsets[i].copyInfo(self.inputParticles.get())
+            readSetOfParticles(fnOutParticles, self.subsets[i])
+            result = {'outputParticlesAux' : self.subsets[i]}
+            self._defineOutputs(**result)
+            self._store(self.subsets[i])
+#             self.createPlot2D(fnAngles) # sometimes there is error with bins in histogram plots
             
     def _updateItem(self, particle, row):
         count = 0
@@ -170,12 +216,15 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
     def _createItemMatrix(self, particle, row):
         row.setValue(emlib.MDL_SHIFT_X, row.getValue(emlib.MDL_SHIFT_X)*self.scaleFactor)
         row.setValue(emlib.MDL_SHIFT_Y, row.getValue(emlib.MDL_SHIFT_Y)*self.scaleFactor)
+        
         setXmippAttributes(particle, row, md.MDL_ANGLE_ROT, md.MDL_ANGLE_TILT,
                            md.MDL_ANGLE_PSI, md.MDL_SHIFT_X, md.MDL_SHIFT_Y,
                            md.MDL_MAXCC, md.MDL_WEIGHT,
                            md.MDL_MAXCC_PREVIOUS, md.MDL_GRAPH_CC_PREVIOUS,
                            md.MDL_ASSIGNED_DIR_REF_CC, md.MDL_GRAPH_DISTANCE2MAX_PREVIOUS,
                            md.MDL_GRAPH_CC, md.MDL_GRAPH_DISTANCE2MAX)
+         
+        
         createItemMatrix(particle, row, align=ALIGN_PROJ)
 
     def doIteration000(self):
@@ -240,127 +289,127 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
         # Global alignment
         self.numberOfPerturbations = 1
         perturbationList = [chr(x) for x in range(ord('a'), ord('a') + self.numberOfPerturbations)]
-        
-        for i in range(1, 2):
-            fnDirSignificant = join(fnGlobal, "significant%02d" % i)
-            fnImgs = join(fnGlobal, "images.xmd")
-            makePath(fnDirSignificant)
 
-            # Create defocus groups
-            row = getFirstRow(fnImgs)
-            if row.containsLabel(emlib.MDL_CTF_MODEL) or row.containsLabel(emlib.MDL_CTF_DEFOCUSU):
-                self.runJob("xmipp_ctf_group", "--ctfdat %s -o %s/ctf:stk --pad 1.0 --sampling_rate %f --phase_flipped  --error 0.1 --resol %f" % \
-                            (fnImgs, fnDirSignificant, TsCurrent, targetResolution), numberOfMpi=1)
-                moveFile("%s/ctf_images.sel" % fnDirSignificant, "%s/ctf_groups.xmd" % fnDirSignificant)
-                cleanPath("%s/ctf_split.doc" % fnDirSignificant)
-                mdInfo = emlib.MetaData("numberGroups@%s" % join(fnDirSignificant, "ctfInfo.xmd"))
-                fnCTFs = "%s/ctf_ctf.stk" % fnDirSignificant
-                numberGroups = mdInfo.getValue(emlib.MDL_COUNT, mdInfo.firstObject())
-                ctfPresent = True
-            else:
-                numberGroups = 1
-                ctfPresent = False
-                fnCTFs = ""
-                
-            # Generate projections
-            fnReferenceVol = join(fnGlobal, "volumeRef%02d.vol" % i)
-            for subset in perturbationList:
-                fnGallery = join(fnDirSignificant, "gallery%02d%s.stk" % (i, subset))
-                fnGalleryMd = join(fnDirSignificant, "gallery%02d%s.xmd" % (i, subset))
-                args = "-i %s -o %s --sampling_rate %f --sym %s --min_tilt_angle %f --max_tilt_angle %f --perturb %f " % \
-                       (fnReferenceVol, fnGallery, angleStep, self.symmetryGroup, self.minTilt.get(), self.maxTilt.get(), math.sin(angleStep * math.pi / 180.0) / 4)
-                args += " --compute_neighbors --angular_distance -1 --experimental_images %s" % self._getExtraPath("images.xmd")
-                self.runJob("xmipp_angular_project_library", args, numberOfMpi = self.numberOfMpi.get() * self.numberOfThreads.get())
-                cleanPath(join(fnDirSignificant, "gallery_angles%02d%s.doc" % (i, subset)))
-                moveFile(join(fnDirSignificant, "gallery%02d%s.doc" % (i, subset)), fnGalleryMd)
-                fnAngles = join(fnGlobal, "anglesDisc%02d%s.xmd" % (i, subset))
-                for j in range(1, numberGroups + 1):
-                    fnAnglesGroup = join(fnDirSignificant, "angles_group%03d%s.xmd" % (j, subset))
-                    if not exists(fnAnglesGroup):
-                        if ctfPresent:
-                            fnGroup = "ctfGroup%06d@%s/ctf_groups.xmd" % (j, fnDirSignificant)
-                            fnCTF = "%d@%s/ctf_ctf.stk" % (j, fnDirSignificant)
-                            fnGalleryGroup = fnGallery = join(fnDirSignificant, "gallery%02d%s_%06d.stk" % (i, subset, j))
-                            fnGalleryGroupMd = fnGallery = join(fnDirSignificant, "gallery%02d%s_%06d.xmd" % (i, subset, j))
-                            self.runJob("xmipp_transform_filter", "-i %s -o %s --fourier binary_file %s --save_metadata_stack %s --keep_input_columns" % \
-                                        (fnGalleryMd, fnGalleryGroup, fnCTF, fnGalleryGroupMd),
-                                        numberOfMpi=min(self.numberOfMpi.get(), 24))
-                        else:
-                            fnGroup = fnImgs
-                            fnGalleryGroup = fnGallery
-                            fnGalleryGroupMd = fnGalleryMd
-                        if getSize(fnGroup) == 0:  # If the group is empty
-                            continue
-                        self.angularMaxShift = 10
-                        maxShift = round(self.angularMaxShift * newXdim / 100)
-                        R = self.inputParticles.get().getDimensions()[0] / 2
-                        R = R * self.TsOrig / TsCurrent    
-                        args = '-i %s -o %s -ref %s -sampling %f -odir %s --Nsimultaneous %d -angleStep %f --maxShift %f --sym %s --useForValidation --refVol %s' % \
-                            (fnGroup, fnAnglesGroup, fnGalleryGroupMd, TsCurrent, fnDirSignificant, self.numberOfMpi.get() * self.numberOfThreads.get(), angleStep, maxShift, self.symmetryGroup, fnReferenceVol)
-                        self.runJob('xmipp_angular_assignment_mag', args, numberOfMpi=self.numberOfMpi.get() * self.numberOfThreads.get())
-                        if exists(fnAnglesGroup):
-                            if not exists(fnAngles) and exists(fnAnglesGroup):
-                                copyFile(fnAnglesGroup, fnAngles)
-                            else:
-                                if exists(fnAngles) and exists(fnAnglesGroup):
-                                    self.runJob("xmipp_metadata_utilities", "-i %s --set union_all %s" % (fnAngles, fnAnglesGroup), numberOfMpi=1)
-                if exists(fnAngles) and exists(fnImgs):
-                    self.runJob("xmipp_metadata_utilities", "-i %s --set join %s image" % (fnAngles, fnImgs), numberOfMpi=1)
-                self.saveSpace = True
-                if self.saveSpace and ctfPresent:
-                    self.runJob("rm -f", fnDirSignificant + "/gallery*", numberOfMpi=1)  
-                    
-            # Evaluate the stability of the alignment
-            fnOut = join(fnGlobal, "anglesDisc%02d" % i)
-            for subset1 in perturbationList:
-                fnOut1 = join(fnGlobal, "anglesDisc%02d%s" % (i, subset1))
-                fnAngles1 = fnOut1 + ".xmd"
-                counter2 = 0
-                for subset2 in perturbationList:
-                    if subset1 == subset2:
-                        continue
-                    fnAngles2 = join(fnGlobal, "anglesDisc%02d%s.xmd" % (i, subset2))
-                    fnOut12 = join(fnGlobal, "anglesDisc%02d%s%s" % (i, subset1, subset2))
-                    self.runJob("xmipp_angular_distance", "--ang1 %s --ang2 %s --oroot %s --sym %s --compute_weights 1 particleId 0.5 --check_mirrors --set 0" % (fnAngles2, fnAngles1, fnOut12, self.symmetryGroup), numberOfMpi=1)
-                    self.runJob("xmipp_metadata_utilities", '-i %s --operate keep_column "angleDiff0 shiftDiff0 weightJumper0"' % (fnOut12 + "_weights.xmd"), numberOfMpi=1)
-                    if counter2 == 0:
-                        mdWeightsAll = emlib.MetaData(fnOut12 + "_weights.xmd")
-                        counter2 = 1
+        i = 1
+        fnDirAssignment = join(fnGlobal, "assignment%02d" % i)
+        fnImgs = join(fnGlobal, "images.xmd")
+        makePath(fnDirAssignment)
+
+        # Create defocus groups
+        row = getFirstRow(fnImgs)
+        if row.containsLabel(emlib.MDL_CTF_MODEL) or row.containsLabel(emlib.MDL_CTF_DEFOCUSU):
+            self.runJob("xmipp_ctf_group", "--ctfdat %s -o %s/ctf:stk --pad 1.0 --sampling_rate %f --phase_flipped  --error 0.1 --resol %f" % \
+                        (fnImgs, fnDirAssignment, TsCurrent, targetResolution), numberOfMpi=1)
+            moveFile("%s/ctf_images.sel" % fnDirAssignment, "%s/ctf_groups.xmd" % fnDirAssignment)
+            cleanPath("%s/ctf_split.doc" % fnDirAssignment)
+            mdInfo = emlib.MetaData("numberGroups@%s" % join(fnDirAssignment, "ctfInfo.xmd"))
+            fnCTFs = "%s/ctf_ctf.stk" % fnDirAssignment
+            numberGroups = mdInfo.getValue(emlib.MDL_COUNT, mdInfo.firstObject())
+            ctfPresent = True
+        else:
+            numberGroups = 1
+            ctfPresent = False
+            fnCTFs = ""
+            
+        # Generate projections
+        fnReferenceVol = join(fnGlobal, "volumeRef%02d.vol" % i)
+        for subset in perturbationList:
+            fnGallery = join(fnDirAssignment, "gallery%02d%s.stk" % (i, subset))
+            fnGalleryMd = join(fnDirAssignment, "gallery%02d%s.xmd" % (i, subset))
+            args = "-i %s -o %s --sampling_rate %f --sym %s --min_tilt_angle %f --max_tilt_angle %f --perturb %f " % \
+                   (fnReferenceVol, fnGallery, angleStep, self.symmetryGroup, self.minTilt.get(), self.maxTilt.get(), math.sin(angleStep * math.pi / 180.0) / 4)
+            args += " --compute_neighbors --angular_distance -1 --experimental_images %s" % self._getExtraPath("images.xmd")
+            self.runJob("xmipp_angular_project_library", args, numberOfMpi = self.numberOfMpi.get() * self.numberOfThreads.get())
+            cleanPath(join(fnDirAssignment, "gallery_angles%02d%s.doc" % (i, subset)))
+            moveFile(join(fnDirAssignment, "gallery%02d%s.doc" % (i, subset)), fnGalleryMd)
+            fnAngles = join(fnGlobal, "anglesDisc%02d%s.xmd" % (i, subset))
+            for j in range(1, numberGroups + 1):
+                fnAnglesGroup = join(fnDirAssignment, "angles_group%03d%s.xmd" % (j, subset))
+                if not exists(fnAnglesGroup):
+                    if ctfPresent:
+                        fnGroup = "ctfGroup%06d@%s/ctf_groups.xmd" % (j, fnDirAssignment)
+                        fnCTF = "%d@%s/ctf_ctf.stk" % (j, fnDirAssignment)
+                        fnGalleryGroup = fnGallery = join(fnDirAssignment, "gallery%02d%s_%06d.stk" % (i, subset, j))
+                        fnGalleryGroupMd = fnGallery = join(fnDirAssignment, "gallery%02d%s_%06d.xmd" % (i, subset, j))
+                        self.runJob("xmipp_transform_filter", "-i %s -o %s --fourier binary_file %s --save_metadata_stack %s --keep_input_columns" % \
+                                    (fnGalleryMd, fnGalleryGroup, fnCTF, fnGalleryGroupMd),
+                                    numberOfMpi=min(self.numberOfMpi.get(), 24))
                     else:
-                        mdWeights = emlib.MetaData(fnOut12 + "_weights.xmd")
-                        if mdWeights.size() == mdWeightsAll.size():
-                            counter2 += 1
-                            for id1, id2 in izip(mdWeights, mdWeightsAll):
-                                angleDiff0 = mdWeights.getValue(emlib.MDL_ANGLE_DIFF0, id1)
-                                shiftDiff0 = mdWeights.getValue(emlib.MDL_SHIFT_DIFF0, id1)
-                                weightJumper0 = mdWeights.getValue(emlib.MDL_WEIGHT_JUMPER0, id1)
-
-                                angleDiff0All = mdWeightsAll.getValue(emlib.MDL_ANGLE_DIFF0, id2)
-                                shiftDiff0All = mdWeightsAll.getValue(emlib.MDL_SHIFT_DIFF0, id2)
-                                weightJumper0All = mdWeightsAll.getValue(emlib.MDL_WEIGHT_JUMPER0, id2)
-
-                                mdWeightsAll.setValue(emlib.MDL_ANGLE_DIFF0, angleDiff0 + angleDiff0All, id2)
-                                mdWeightsAll.setValue(emlib.MDL_SHIFT_DIFF0, shiftDiff0 + shiftDiff0All, id2)
-                                mdWeightsAll.setValue(emlib.MDL_WEIGHT_JUMPER0, weightJumper0 + weightJumper0All, id2)
-                if counter2 > 1:
-                    iCounter2 = 1.0 / counter2
-                    for id in mdWeightsAll:
-                        angleDiff0All = mdWeightsAll.getValue(emlib.MDL_ANGLE_DIFF0, id)
-                        shiftDiff0All = mdWeightsAll.getValue(emlib.MDL_SHIFT_DIFF0, id)
-                        weightJumper0All = mdWeightsAll.getValue(emlib.MDL_WEIGHT_JUMPER0, id)
-
-                        mdWeightsAll.setValue(emlib.MDL_ANGLE_DIFF0, angleDiff0All * iCounter2, id)
-                        mdWeightsAll.setValue(emlib.MDL_SHIFT_DIFF0, shiftDiff0All * iCounter2, id)
-                        mdWeightsAll.setValue(emlib.MDL_WEIGHT_JUMPER0, weightJumper0All * iCounter2, id)
-                if counter2 > 0:
-                    mdWeightsAll.write(fnOut1 + "_weights.xmd")
-                    self.runJob("xmipp_metadata_utilities", '-i %s --set merge %s' % (fnAngles1, fnOut1 + "_weights.xmd"), numberOfMpi=1)
-                if not exists(fnOut + ".xmd") and exists(fnAngles1):
-                    copyFile(fnAngles1, fnOut + ".xmd")
+                        fnGroup = fnImgs
+                        fnGalleryGroup = fnGallery
+                        fnGalleryGroupMd = fnGalleryMd
+                    if getSize(fnGroup) == 0:  # If the group is empty
+                        continue
+                    self.angularMaxShift = 10
+                    maxShift = round(self.angularMaxShift * newXdim / 100)
+                    R = self.inputParticles.get().getDimensions()[0] / 2
+                    R = R * self.TsOrig / TsCurrent    
+                    args = '-i %s -o %s -ref %s -sampling %f -odir %s --Nsimultaneous %d -angleStep %f --maxShift %f --sym %s --useForValidation --refVol %s' % \
+                        (fnGroup, fnAnglesGroup, fnGalleryGroupMd, TsCurrent, fnDirAssignment, self.numberOfMpi.get() * self.numberOfThreads.get(), angleStep, maxShift, self.symmetryGroup, fnReferenceVol)
+                    self.runJob('xmipp_angular_assignment_mag', args, numberOfMpi=self.numberOfMpi.get() * self.numberOfThreads.get())
+                    if exists(fnAnglesGroup):
+                        if not exists(fnAngles) and exists(fnAnglesGroup):
+                            copyFile(fnAnglesGroup, fnAngles)
+                        else:
+                            if exists(fnAngles) and exists(fnAnglesGroup):
+                                self.runJob("xmipp_metadata_utilities", "-i %s --set union_all %s" % (fnAngles, fnAnglesGroup), numberOfMpi=1)
+            if exists(fnAngles) and exists(fnImgs):
+                self.runJob("xmipp_metadata_utilities", "-i %s --set join %s image" % (fnAngles, fnImgs), numberOfMpi=1)
+            self.saveSpace = True
+            if self.saveSpace and ctfPresent:
+                self.runJob("rm -f", fnDirAssignment + "/gallery*", numberOfMpi=1)  
+                
+        # Evaluate the stability of the alignment
+        fnOut = join(fnGlobal, "anglesDisc%02d" % i)
+        for subset1 in perturbationList:
+            fnOut1 = join(fnGlobal, "anglesDisc%02d%s" % (i, subset1))
+            fnAngles1 = fnOut1 + ".xmd"
+            counter2 = 0
+            for subset2 in perturbationList:
+                if subset1 == subset2:
+                    continue
+                fnAngles2 = join(fnGlobal, "anglesDisc%02d%s.xmd" % (i, subset2))
+                fnOut12 = join(fnGlobal, "anglesDisc%02d%s%s" % (i, subset1, subset2))
+                self.runJob("xmipp_angular_distance", "--ang1 %s --ang2 %s --oroot %s --sym %s --compute_weights 1 particleId 0.5 --check_mirrors --set 0" % (fnAngles2, fnAngles1, fnOut12, self.symmetryGroup), numberOfMpi=1)
+                self.runJob("xmipp_metadata_utilities", '-i %s --operate keep_column "angleDiff0 shiftDiff0 weightJumper0"' % (fnOut12 + "_weights.xmd"), numberOfMpi=1)
+                if counter2 == 0:
+                    mdWeightsAll = emlib.MetaData(fnOut12 + "_weights.xmd")
+                    counter2 = 1
                 else:
-                    if exists(fnAngles1) and exists(fnOut + ".xmd"):
-                        self.runJob("xmipp_metadata_utilities", '-i %s --set union_all %s' % (fnOut + ".xmd", fnAngles1), numberOfMpi=1)
-        cleanPath(join(fnGlobal, "anglesDisc*_weights.xmd"))                               
+                    mdWeights = emlib.MetaData(fnOut12 + "_weights.xmd")
+                    if mdWeights.size() == mdWeightsAll.size():
+                        counter2 += 1
+                        for id1, id2 in izip(mdWeights, mdWeightsAll):
+                            angleDiff0 = mdWeights.getValue(emlib.MDL_ANGLE_DIFF0, id1)
+                            shiftDiff0 = mdWeights.getValue(emlib.MDL_SHIFT_DIFF0, id1)
+                            weightJumper0 = mdWeights.getValue(emlib.MDL_WEIGHT_JUMPER0, id1)
+
+                            angleDiff0All = mdWeightsAll.getValue(emlib.MDL_ANGLE_DIFF0, id2)
+                            shiftDiff0All = mdWeightsAll.getValue(emlib.MDL_SHIFT_DIFF0, id2)
+                            weightJumper0All = mdWeightsAll.getValue(emlib.MDL_WEIGHT_JUMPER0, id2)
+
+                            mdWeightsAll.setValue(emlib.MDL_ANGLE_DIFF0, angleDiff0 + angleDiff0All, id2)
+                            mdWeightsAll.setValue(emlib.MDL_SHIFT_DIFF0, shiftDiff0 + shiftDiff0All, id2)
+                            mdWeightsAll.setValue(emlib.MDL_WEIGHT_JUMPER0, weightJumper0 + weightJumper0All, id2)
+            if counter2 > 1:
+                iCounter2 = 1.0 / counter2
+                for id in mdWeightsAll:
+                    angleDiff0All = mdWeightsAll.getValue(emlib.MDL_ANGLE_DIFF0, id)
+                    shiftDiff0All = mdWeightsAll.getValue(emlib.MDL_SHIFT_DIFF0, id)
+                    weightJumper0All = mdWeightsAll.getValue(emlib.MDL_WEIGHT_JUMPER0, id)
+
+                    mdWeightsAll.setValue(emlib.MDL_ANGLE_DIFF0, angleDiff0All * iCounter2, id)
+                    mdWeightsAll.setValue(emlib.MDL_SHIFT_DIFF0, shiftDiff0All * iCounter2, id)
+                    mdWeightsAll.setValue(emlib.MDL_WEIGHT_JUMPER0, weightJumper0All * iCounter2, id)
+            if counter2 > 0:
+                mdWeightsAll.write(fnOut1 + "_weights.xmd")
+                self.runJob("xmipp_metadata_utilities", '-i %s --set merge %s' % (fnAngles1, fnOut1 + "_weights.xmd"), numberOfMpi=1)
+            if not exists(fnOut + ".xmd") and exists(fnAngles1):
+                copyFile(fnAngles1, fnOut + ".xmd")
+            else:
+                if exists(fnAngles1) and exists(fnOut + ".xmd"):
+                    self.runJob("xmipp_metadata_utilities", '-i %s --set union_all %s' % (fnOut + ".xmd", fnAngles1), numberOfMpi=1)
+        cleanPath(join(fnGlobal, "anglesDisc*_weights.xmd"))    
 
     def calculateAngStep(self, newXdim, TsCurrent, ResolutionAlignment):
         k = newXdim * TsCurrent / ResolutionAlignment  # Freq. index
@@ -436,40 +485,30 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
 #             fnMask=join(fnDir,"mask.vol")
 #             self.prepareMask(self.nextMask.get(), fnMask, TsCurrent, newXdim)
         oldXdim = self.readInfoField(fnDirPrevious, "size", emlib.MDL_XSIZE)
-        for i in range(1, 2):
-            fnPreviousVol = join(fnDirPrevious, "volume%02d.vol" % i)
-            fnReferenceVol = join(fnDir, "volumeRef%02d.vol" % i)
-            if oldXdim != newXdim:
-                self.runJob("xmipp_image_resize", "-i %s -o %s --dim %d" % (fnPreviousVol, fnReferenceVol, newXdim), numberOfMpi=1)
-            else:
-                copyFile(fnPreviousVol, fnReferenceVol)
-            # i dont have fsc because i only use one volume
-            # self.runJob('xmipp_transform_filter','-i %s --fourier fsc %s --sampling %f'%(fnReferenceVol,join(fnDirPrevious,"fsc.xmd"),TsCurrent),numberOfMpi=1)
-            self.nextLowPass = True
-            if self.nextLowPass:
-                self.nextResolutionOffset = 2  # Resolution offset (A)
-                self.runJob('xmipp_transform_filter', '-i %s --fourier low_pass %f --sampling %f' % \
-                            (fnReferenceVol, targetResolution + self.nextResolutionOffset, TsCurrent), numberOfMpi=1)
-            self.nextSpherical = True
-            if self.nextSpherical:
-                R = self.inputParticles.get().getDimensions()[0] / 2
-                self.runJob('xmipp_transform_mask', '-i %s --mask circular -%d' % \
-                            (fnReferenceVol, round(R * self.TsOrig / TsCurrent)), numberOfMpi=1)
-            self.nextPositivity = True
-            if self.nextPositivity:
-                self.runJob('xmipp_transform_threshold', '-i %s --select below 0 --substitute value 0' % fnReferenceVol, numberOfMpi=1)
-#             if fnMask!='':
-#                 self.runJob('xmipp_image_operate','-i %s --mult %s'%(fnReferenceVol,fnMask),numberOfMpi=1)
-#             self.nextDropout = 0.0
-#             if self.nextDropout>0.0:
-#                 self.runJob('xmipp_image_operate','-i %s --dropout %f'%(fnReferenceVol,self.nextDropout),numberOfMpi=1)
-#             if self.nextReferenceScript!="":
-#                 scriptArgs = {'volume': fnReferenceVol,
-#                               'sampling': TsCurrent,
-#                               'dim': newXdim,
-#                               'iterDir': fnDir}
-#                 cmd = self.nextReferenceScript % scriptArgs
-#                 self.runJob(cmd, '', numberOfMpi=1)
+        #for i in range(1, 2):
+        i=1
+        fnPreviousVol = join(fnDirPrevious, "volume%02d.vol" % i)
+        fnReferenceVol = join(fnDir, "volumeRef%02d.vol" % i)
+        if oldXdim != newXdim:
+            self.runJob("xmipp_image_resize", "-i %s -o %s --dim %d" % (fnPreviousVol, fnReferenceVol, newXdim), numberOfMpi=1)
+        else:
+            copyFile(fnPreviousVol, fnReferenceVol)
+        # i dont have fsc because i only use one volume
+        # self.runJob('xmipp_transform_filter','-i %s --fourier fsc %s --sampling %f'%(fnReferenceVol,join(fnDirPrevious,"fsc.xmd"),TsCurrent),numberOfMpi=1)
+        self.nextLowPass = True
+        if self.nextLowPass:
+            self.nextResolutionOffset = 2  # Resolution offset (A)
+            self.runJob('xmipp_transform_filter', '-i %s --fourier low_pass %f --sampling %f' % \
+                        (fnReferenceVol, targetResolution + self.nextResolutionOffset, TsCurrent), numberOfMpi=1)
+        self.nextSpherical = True
+        if self.nextSpherical:
+            R = self.inputParticles.get().getDimensions()[0] / 2
+            self.runJob('xmipp_transform_mask', '-i %s --mask circular -%d' % \
+                        (fnReferenceVol, round(R * self.TsOrig / TsCurrent)), numberOfMpi=1)
+        self.nextPositivity = True
+        if self.nextPositivity:
+            self.runJob('xmipp_transform_threshold', '-i %s --select below 0 --substitute value 0' % fnReferenceVol, numberOfMpi=1)
+
         if fnMask != '':
             cleanPath(fnMask)
         self.writeInfoField(fnDir, "count", emlib.MDL_COUNT, int(2)) 
@@ -480,16 +519,11 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
             fnGlobal = join(fnDirCurrent, "globalAssignment")
             if exists(fnGlobal):
                 cleanPath(join(fnGlobal, "images.stk"))
-            for i in range(1, 2):
-                if exists(fnGlobal):
-                    cleanPath(join(fnGlobal, "images.xmd"))
-                    cleanPath(join(fnGlobal, "volumeRef%02d.vol" % i))
-#                 fnCorrectedImages=join(fnDirCurrent,"images_corrected%02d.stk"%i)
-#                 if exists(fnCorrectedImages) and iteration!=self.firstIteration+self.numberOfIterations.get()-1:
-#                     cleanPath(fnCorrectedImages) # Delete corrected images except for the last iteration
-#                     #if self.weightResiduals:
-#                     #    cleanPath(join(fnLocal,"covariance%02d.stk"%i))
-#                     #    cleanPath(join(fnLocal,"residuals%02i.stk"%i))
+            #for i in range(1, 2):
+            i=1
+            if exists(fnGlobal):
+                cleanPath(join(fnGlobal, "images.xmd"))
+                cleanPath(join(fnGlobal, "volumeRef%02d.vol" % i))
 
     def createPlot2D(self, fnAngles):
         mdParticles = emlib.MetaData(fnAngles)
