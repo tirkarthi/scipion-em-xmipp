@@ -30,6 +30,8 @@ from .protocol_preprocess import *
 
 from .protocol_assignment_tilt_pair import XmippProtAssignmentTiltPair
 from .protocol_align_volume import XmippProtAlignVolume, XmippProtAlignVolumeForWeb
+from .protocol_angular_graph_consistence import XmippProtAngularGraphConsistence
+from .protocol_angular_graph_consistence2 import XmippProtAngularGraphConsistence2
 from .protocol_preprocess.protocol_add_noise import (XmippProtAddNoiseVolumes,
                                                      XmippProtAddNoiseParticles)
 from .protocol_apply_alignment import XmippProtApplyAlignment
@@ -116,6 +118,7 @@ from .protocol_reconstruct_heterogeneous import XmippProtReconstructHeterogeneou
 from .protocol_metaprotocol_create_subset import XmippMetaProtCreateSubset
 from .protocol_metaprotocol_create_output import XmippMetaProtCreateOutput
 from .protocol_metaprotocol_discrete_heterogeneity_scheduler import XmippMetaProtDiscreteHeterogeneityScheduler # keep this after XmippMetaProtCreateSubset and XmippMetaProtCreateOutput
+from .protocol_metaprotocol_graph_heterogeneity import XmippMetaProtDiscreteGraphHeterogeneity
 from .protocol_angular_alignment_sph import XmippProtAngularAlignmentSPH
 from .protocol_volume_deform_sph import XmippProtVolumeDeformSPH
 from .protocol_structure_map_sph import XmippProtStructureMapSPH
