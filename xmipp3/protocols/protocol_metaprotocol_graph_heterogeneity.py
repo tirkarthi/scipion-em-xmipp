@@ -231,7 +231,7 @@ class XmippMetaProtDiscreteGraphHeterogeneity(EMProtocol):
                         #multiresolution=False,
                         numberOfMpi=self.numberOfMpi.get(),
                         alignmentMethod=XmippProtReconstructHighRes.GLOBAL_ALIGNMENT,
-                        useGpu=self.useGpu.get(),
+                        useGpu=self.useGpu.get(), # si algo cambiar a false
                         gpuList = self.gpuList.get()
                         )    
                 newHighres.inputParticles.set(previousProtPart)
@@ -447,6 +447,7 @@ class XmippMetaProtDiscreteGraphHeterogeneity(EMProtocol):
                     self.classListProtocols.append(protocol) 
         print('protocol: %s has finished' % protocol.getObjLabel())
         sys.stdout.flush()
+        time.sleep(15)
          
 
     def _updateProtocol(self, protocol):
