@@ -49,6 +49,7 @@ from pwem.constants import ALIGN_PROJ
 
 from xmipp3.convert import writeSetOfParticles, writeSetOfVolumes, \
     getImageLocation, setXmippAttributes, createItemMatrix, readSetOfParticles, readSetOfImages
+from _ast import Try
 
 
 class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
@@ -160,10 +161,17 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
             ccGraphPrevList = mdParticles.getColumnValues(emlib.MDL_GRAPH_CC_PREVIOUS)
             ccAsigDirRefList = mdParticles.getColumnValues(emlib.MDL_ASSIGNED_DIR_REF_CC)
             angDistPrevList = mdParticles.getColumnValues(emlib.MDL_GRAPH_DISTANCE2MAX_PREVIOUS)
+            
             # threshold
-            th_ccGraph = self.otsu(ccGraphPrevList)
-            th_ccAsigDir = self.otsu(ccAsigDirRefList)
-            th_angDist = self.otsu(angDistPrevList)
+            try:
+                th_ccGraph = self.otsu(ccGraphPrevList)
+                th_ccAsigDir = self.otsu(ccAsigDirRefList)
+                th_angDist = self.otsu(angDistPrevList)
+            except:
+                print("applying default thresholds")
+                th_ccGraph = 0.95
+                th_ccAsigDir = 0.95
+                th_angDist = 3 * self.angularSampling.get() 
             
             print("\033[1;33Thresholds:\033[0;33 \n")
             print('correlation with projection in Graph max direction:',th_ccGraph,
@@ -177,7 +185,9 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
             n_false = 0;
             
             angAccept = 3 * self.angularSampling.get()
+            nParticles = 0
             for row in iterRows(mdParticles):
+                nParticles += 1
                 objId = row.getObjId()
                 assigDirRefCC = row.getValue(emlib.MDL_ASSIGNED_DIR_REF_CC)
                 graphCCPrev = row.getValue(emlib.MDL_GRAPH_CC_PREVIOUS)
@@ -187,8 +197,8 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
                 #if (assigDirRefCC < self.ccLevel) and ( graphCCPrev < self.ccLevel ) and (graphDistMaxGraphPrev > angAccept):
                     n_false += 1
                     mdParticles.setValue(emlib.MDL_ENABLED, -1, objId)
-            mdParticles.write(fnOutParticles)
-            print('to be disabled:',n_false)
+            mdParticles.write(fnOutParticles) 
+            print('to be disabled:',n_false)          
             self.subsets = []
             i=0
             self.subsets.append(self._createSetOfParticles(str(i)))
@@ -197,6 +207,14 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
             result = {'outputParticlesAux' : self.subsets[i]}
             self._defineOutputs(**result)
             self._store(self.subsets[i])
+            
+            # extra output info
+            p_gsp = (1 - n_false/nParticles)* 100
+            parameterFile = self._getExtraPath('parameter.txt')
+            fh = open(parameterFile, "w")
+            fh.write("%.2f" % p_gsp)
+            fh.close()             
+            
 #             self.createPlot2D(fnAngles) # sometimes there is error with bins in histogram plots
             
     def _updateItem(self, particle, row):
@@ -525,69 +543,6 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
                 cleanPath(join(fnGlobal, "images.xmd"))
                 cleanPath(join(fnGlobal, "volumeRef%02d.vol" % i))
 
-    def createPlot2D(self, fnAngles):
-        mdParticles = emlib.MetaData(fnAngles)
-        
-        ccList = mdParticles.getColumnValues(emlib.MDL_MAXCC)
-        graphConsistList = mdParticles.getColumnValues(emlib.MDL_ASSIGNED_DIR_REF_CC)
-        
-        # threshold
-        th_gsp = self.otsu(graphConsistList)
-        th_cc = self.otsu(ccList)
-        
-        cont_gsp = 0        
-        cont_cc = 0
-        total = 0
-        for objId in mdParticles:
-            total += 1
-            if ( mdParticles.getValue(emlib.MDL_ASSIGNED_DIR_REF_CC, objId) > th_gsp ):
-                cont_gsp += 1
-            if ( mdParticles.getValue(emlib.MDL_MAXCC, objId) > th_cc ):
-                cont_cc += 1
-        # percentage of images in reliable assignment zone
-        p_gsp = cont_gsp/total * 100
-        p_cc = cont_cc/total * 100
-        
-        parameterFile = self._getExtraPath('parameter.txt')
-        fh = open(parameterFile, "w")
-        fh.write("%.2f" % p_gsp)
-        fh.close()
-                
-        figurePath = self._getExtraPath('graphConsistenceHistogram.png')
-        figureSize = (8, 6)
-        plotter = Plotter(*figureSize)
-        figure = plotter.getFigure()
-        ax = figure.add_subplot(111)
-        ax.set_title('Histogram - Soft alignment validation')
-        ax.set_xlabel('Modified cross-correlation based on GSP')
-        ax.set_ylabel('Num. of images')
-        lb = '%.2f'%p_gsp
-        lb += r'$\%$ images are in the reliable assignment zone'
-        # histogram
-        ax.hist(graphConsistList, bins=50, label=lb)
-        ax.legend()
-        ax.autoscale_view(True, True, True)
-        plotter.savefig(figurePath)
-        plotter.show()
-        
-        # histogram of angular_assignment_mag
-        figurePath2 = self._getExtraPath('ccMaxHistogram.png')
-        figureSize2 = (8, 6)
-        plotter2 = Plotter(*figureSize2)
-        figure2 = plotter2.getFigure()
-        ax2 = figure2.add_subplot(111)
-        ax2.set_title('Histogram - Soft alignment validation')
-        ax2.set_xlabel('Modified cross-correlation based on GSP')
-        ax2.set_ylabel('Num. of images')
-        lb = '%.2f'%p_cc
-        lb += r'$\%$ images are in the reliable assignment zone'
-        # histogram
-        ax2.hist(ccList, bins=50, label=lb)
-        ax2.legend()
-        ax2.autoscale_view(True, True, True)
-        plotter2.savefig(figurePath2)
-        
-        return plotter        
     # --------------------------- INFO functions --------------------------------------------
     def _validate(self):
         validateMsgs = []
@@ -610,12 +565,12 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
             fh = open(parameterFile, "r")
             val = fh.readline()
             fh.close()
-            text = 'After validation, a %s' % val
-            text += '%'
-            text += ' of images are within the reliable assignment zone'
+            if val == "100.00":
+                text = 'After validation, all of the images are likely to be within the realiable assignment zone'
+            else:
+                text = 'After validation, a %s' % val
+                text += r'% of the images are likely to be within the reliable assignment zone'
             summary.append(text)
-            figPath = self._getExtraPath('graphConsistenceHistogram.png')
-            summary.append('histogram plot in %s' % figPath)
         return summary    
 
     def _methods(self):
@@ -630,7 +585,7 @@ class XmippProtAngularGraphConsistence2(ProtAnalysis3D):
     def otsu(self, ccList):
         # method from golden highres
         import numpy as np
-        
+
         cc_number = len(ccList)
         mean_weigth = 1.0 / cc_number
         his, bins = np.histogram(ccList, int((max(ccList)-min(ccList))/0.01))

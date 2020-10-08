@@ -371,23 +371,6 @@ class XmippViewer(DataViewer):
                                                       SORT_BY: '_xmipp_assignedDirRefCC desc',
                                                       RENDER: labelRender,
                                                       MODE: MODE_MD}))
-
-            fn = obj._getPath('angles.xmd')
-            md = emlib.MetaData(fn)
-            plotter = XmippPlotter()
-            plotter.createSubPlot('Histogram - Soft alignment validation',
-                                  'Assigned references cross-correlation', 'Num. of images')
-            plotter.plotMdFile(md, emlib.MDL_MAXCC,
-                               emlib.MDL_ASSIGNED_DIR_REF_CC, nbins=50, color='orange')
-            parameterFile = obj._getExtraPath('parameter.txt')
-            fh = open(parameterFile, "r")
-            val = fh.readline()
-            fh.close()
-            lb = '%s'%val
-            lb += r'$\%$ are in the reliable assignment zone'
-            tup = (lb,)
-            plotter.showLegend(tup)
-            self._views.append(plotter)
             
 
         elif issubclass(cls, XmippProtExtractParticlesPairs):
